@@ -1,0 +1,6 @@
+/**
+ * @dokandesk/shared
+ * Shared utilities, domain models, permissions, money helpers, and Zod schemas.
+ */
+
+export const SHARED_PACKAGE_VERSION = '0.1.0';
