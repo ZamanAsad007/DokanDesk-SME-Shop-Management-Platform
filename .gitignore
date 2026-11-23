@@ -1,0 +1,43 @@
+# Design docs (confidential / never committed or pushed)
+SME_POS_DESIGN.md
+*DESIGN*.md
+design-docs/
+
+# Environment files and secrets
+.env
+.env.*
+!.env.example
+
+# Private keys and certificates
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*service-account*.json
+credentials*.json
+secrets/
+
+# Database dumps and data files
+*.sql.dump
+*.dump
+*.sqlite
+*.sqlite3
+
+# Dependencies and build outputs
+node_modules/
+dist/
+build/
+.turbo/
+*.tsbuildinfo
+coverage/
+uploads/
+
+# IDE and OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo

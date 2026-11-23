@@ -1,0 +1,31 @@
+# Environment files and secrets
+.env
+.env.*
+!.env.example
+
+# Git metadata
+.git
+.github
+.githooks
+
+# Dependencies and build outputs
+node_modules
+dist
+build
+coverage
+uploads
+
+# Private keys and certificates
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*service-account*.json
+credentials*.json
+secrets
+
+# Design documents
+SME_POS_DESIGN.md
+*DESIGN*.md
