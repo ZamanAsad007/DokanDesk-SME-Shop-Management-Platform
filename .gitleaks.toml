@@ -1,0 +1,21 @@
+# Gitleaks Configuration for DokanDesk
+title = "DokanDesk Gitleaks Config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Global allowlist for harmless placeholders and test fixtures"
+paths = [
+  '''^\.env\.example$''',
+  '''^package-lock\.json$''',
+  '''^pnpm-lock\.yaml$''',
+  '''^tests/.*''',
+  '''^apps/.*/tests/.*''',
+  '''^packages/.*/tests/.*'''
+]
+regexes = [
+  '''replace_with_.*''',
+  '''test-secret-not-real.*''',
+  '''replace-me.*'''
+]

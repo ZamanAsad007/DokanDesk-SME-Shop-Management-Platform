@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Ensure local bin is in PATH for gitleaks
+export PATH="$HOME/.local/bin:$PATH"
+
+echo "Running pre-commit security checks..."
+
+# 1. Block secret-like filenames and confidential design documents
+blocked='(^|/)\.env($|\.)|\.pem$|\.key$|\.p12$|\.pfx$|\.jks$|\.keystore$|service-account.*\.json$|\.dump$|credentials.*\.json$|SME_POS_DESIGN\.md$'
+files=$(git diff --cached --name-only --diff-filter=ACM | grep -E "$blocked" | grep -v '\.env\.example$' || true)
+
+if [ -n "$files" ]; then
+  echo "=========================================================="
+  echo "BLOCKED: The following sensitive/restricted files are staged:"
+  echo "$files"
+  echo "Please unstage them immediately (git reset HEAD <file>)."
+  echo "=========================================================="
+  exit 1
+fi
+
+# 2. Verify gitleaks is installed
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "=========================================================="
+  echo "BLOCKED: gitleaks is not installed in PATH."
+  echo "Install gitleaks or ensure it is accessible in ~/.local/bin."
+  echo "=========================================================="
+  exit 1
+fi
+
+# 3. Run gitleaks scan on staged changes
+if ! gitleaks git --pre-commit --staged --redact; then
+  echo "=========================================================="
+  echo "BLOCKED: gitleaks detected potential secret in staged files."
+  echo "Remove the secret before committing."
+  echo "=========================================================="
+  exit 1
+fi
+
+echo "Pre-commit checks passed successfully."
