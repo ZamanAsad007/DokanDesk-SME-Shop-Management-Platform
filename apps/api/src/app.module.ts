@@ -8,6 +8,7 @@ import { TenantsModule } from './tenants/tenants.module.js';
 import { BranchesModule } from './branches/branches.module.js';
 import { UsersModule } from './users/users.module.js';
 import { CatalogModule } from './catalog/catalog.module.js';
+import { InventoryModule } from './inventory/inventory.module.js';
 import { TenantMiddleware } from './common/tenancy/tenant.middleware.js';
 
 @Module({
@@ -21,6 +22,7 @@ import { TenantMiddleware } from './common/tenancy/tenant.middleware.js';
     BranchesModule,
     UsersModule,
     CatalogModule,
+    InventoryModule,
   ],
   controllers: [],
   providers: [],
