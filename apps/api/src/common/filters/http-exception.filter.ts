@@ -1,10 +1,4 @@
-import {
-  ExceptionFilter,
-  Catch,
-  ArgumentsHost,
-  HttpException,
-  HttpStatus,
-} from '@nestjs/common';
+import { ExceptionFilter, Catch, ArgumentsHost, HttpException, HttpStatus } from '@nestjs/common';
 import { Response } from 'express';
 import { ApiErrorCode, ApiErrorResponse } from '@dokandesk/shared';
 import { AppLoggerService } from '../logger/logger.service.js';
@@ -38,9 +32,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       }
     } else if (exception instanceof Error) {
       this.logger?.error(`Unhandled Exception: ${exception.message}`, exception.stack);
-      message = process.env.NODE_ENV === 'production'
-        ? 'Internal server error'
-        : exception.message;
+      message = process.env.NODE_ENV === 'production' ? 'Internal server error' : exception.message;
     }
 
     const payload: ApiErrorResponse = {

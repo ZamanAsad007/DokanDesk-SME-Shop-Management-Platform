@@ -41,6 +41,4 @@ export function validateEnv(raw: Record<string, unknown>): EnvConfig {
 
 // In non-test environments, validate process.env immediately on import
 export const env: EnvConfig =
-  process.env.NODE_ENV === 'test'
-    ? ({} as EnvConfig)
-    : validateEnv(process.env);
+  process.env.NODE_ENV === 'test' ? ({} as EnvConfig) : validateEnv(process.env);

@@ -22,18 +22,21 @@ describe('Logger Service Sensitive Data Redaction', () => {
       destination,
     );
 
-    testLogger.info({
-      user: {
-        id: 'u1',
-        email: 'user@example.com',
-        password: 'my-super-secret-password-123',
-        pin: '1234',
+    testLogger.info(
+      {
+        user: {
+          id: 'u1',
+          email: 'user@example.com',
+          password: 'my-super-secret-password-123',
+          pin: '1234',
+        },
+        token: 'jwt.token.string',
+        headers: {
+          authorization: 'Bearer secret_access_token',
+        },
       },
-      token: 'jwt.token.string',
-      headers: {
-        authorization: 'Bearer secret_access_token',
-      },
-    }, 'User logged in');
+      'User logged in',
+    );
 
     expect(capturedLog).not.toContain('my-super-secret-password-123');
     expect(capturedLog).not.toContain('1234');

@@ -20,17 +20,13 @@ describe('DokanDesk API (e2e)', () => {
     // Set fallback test environment variables if not already set
     process.env.NODE_ENV = 'test';
     process.env.DATABASE_URL =
-      process.env.DATABASE_URL ||
-      'postgresql://test:test@localhost:5432/test?schema=public';
+      process.env.DATABASE_URL || 'postgresql://test:test@localhost:5432/test?schema=public';
     process.env.REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
     process.env.JWT_ACCESS_SECRET =
-      process.env.JWT_ACCESS_SECRET ||
-      'test_access_secret_min_32_characters_long_for_test';
+      process.env.JWT_ACCESS_SECRET || 'test_access_secret_min_32_characters_long_for_test';
     process.env.JWT_REFRESH_SECRET =
-      process.env.JWT_REFRESH_SECRET ||
-      'test_refresh_secret_min_32_characters_long_for_test';
-    process.env.WEB_ORIGIN =
-      process.env.WEB_ORIGIN || 'http://localhost:5173';
+      process.env.JWT_REFRESH_SECRET || 'test_refresh_secret_min_32_characters_long_for_test';
+    process.env.WEB_ORIGIN = process.env.WEB_ORIGIN || 'http://localhost:5173';
 
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],

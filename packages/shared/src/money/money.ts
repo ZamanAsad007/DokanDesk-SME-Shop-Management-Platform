@@ -128,7 +128,9 @@ export function calculatePercentageDiscount(totalPaisa: number, discountPercent:
     discountPercent < 0 ||
     discountPercent > 100
   ) {
-    throw new MoneyError(`Discount percentage must be between 0 and 100, received ${discountPercent}`);
+    throw new MoneyError(
+      `Discount percentage must be between 0 and 100, received ${discountPercent}`,
+    );
   }
   const discount = Math.round((totalPaisa * discountPercent) / 100);
   return Math.min(totalPaisa, discount);
