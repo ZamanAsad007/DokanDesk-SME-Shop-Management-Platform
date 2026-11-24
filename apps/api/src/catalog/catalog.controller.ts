@@ -10,9 +10,11 @@ import {
   UseGuards,
   ParseUUIDPipe,
   Inject,
+  Header,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { CatalogService } from './catalog.service.js';
+import { CsvCatalogService } from './services/csv-catalog.service.js';
 import { createCategorySchema, updateCategorySchema } from './dto/categories.dto.js';
 import type { CreateCategoryDto, UpdateCategoryDto } from './dto/categories.dto.js';
 import { createBrandSchema, updateBrandSchema } from './dto/brands.dto.js';
@@ -47,6 +49,7 @@ import { Permission } from '@dokandesk/shared';
 export class CatalogController {
   constructor(
     @Inject(CatalogService) private readonly catalogService: CatalogService,
+    @Inject(CsvCatalogService) private readonly csvService: CsvCatalogService,
   ) {}
 
   // ================= CATEGORIES =================
@@ -253,6 +256,32 @@ export class CatalogController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.catalogService.getPriceHistory(tenantId, id);
+  }
+
+  // ================= CSV IMPORT / EXPORT =================
+
+  @Post('products/import/csv')
+  @RequirePermissions(Permission.CATALOG_MANAGE)
+  @ApiOperation({ summary: 'Import products in bulk from CSV string with validation report' })
+  async importCsv(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: AuthTokenPayload,
+    @Body() body: { csvContent: string },
+  ) {
+    return this.csvService.importProductsCsv(
+      tenantId,
+      user.sub,
+      body.csvContent || '',
+    );
+  }
+
+  @Get('products/export/csv')
+  @RequirePermissions(Permission.CATALOG_VIEW)
+  @Header('Content-Type', 'text/csv')
+  @Header('Content-Disposition', 'attachment; filename="catalog-products.csv"')
+  @ApiOperation({ summary: 'Export all products to CSV format' })
+  async exportCsv(@CurrentTenant() tenantId: string) {
+    return this.csvService.exportProductsCsv(tenantId);
   }
 
   // ================= VARIANTS =================
