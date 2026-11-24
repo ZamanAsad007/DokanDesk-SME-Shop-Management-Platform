@@ -62,7 +62,10 @@ export const productQuerySchema = z.object({
   search: z.string().trim().optional(),
   categoryId: z.string().uuid().optional(),
   brandId: z.string().uuid().optional(),
-  isActive: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
+  isActive: z
+    .enum(['true', 'false'])
+    .transform((v) => v === 'true')
+    .optional(),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });

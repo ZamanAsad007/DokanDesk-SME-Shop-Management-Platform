@@ -9,12 +9,8 @@ import { PrismaService } from '../common/prisma/prisma.service.js';
 import { CreateCategoryDto, UpdateCategoryDto } from './dto/categories.dto.js';
 import { CreateBrandDto, UpdateBrandDto } from './dto/brands.dto.js';
 import { CreateUnitDto, CreateUnitConversionDto } from './dto/units.dto.js';
-import {
-  CreateProductDto,
-  UpdateProductDto,
-  ProductQueryInput,
-} from './dto/products.dto.js';
-import { CreateVariantDto, UpdateVariantDto } from './dto/variants.dto.js';
+import { CreateProductDto, UpdateProductDto, ProductQueryInput } from './dto/products.dto.js';
+import { CreateVariantDto } from './dto/variants.dto.js';
 import { ApiErrorCode } from '@dokandesk/shared';
 
 @Injectable()
@@ -52,11 +48,7 @@ export class CatalogService {
     return category;
   }
 
-  async createCategory(
-    tenantId: string,
-    userId: string,
-    dto: CreateCategoryDto,
-  ) {
+  async createCategory(tenantId: string, userId: string, dto: CreateCategoryDto) {
     if (dto.parentId) {
       const parent = await this.prisma.category.findFirst({
         where: { id: dto.parentId, tenant_id: tenantId },
@@ -107,12 +99,7 @@ export class CatalogService {
     return created;
   }
 
-  async updateCategory(
-    tenantId: string,
-    userId: string,
-    id: string,
-    dto: UpdateCategoryDto,
-  ) {
+  async updateCategory(tenantId: string, userId: string, id: string, dto: UpdateCategoryDto) {
     const category = await this.getCategory(tenantId, id);
 
     if (dto.parentId) {
@@ -138,9 +125,7 @@ export class CatalogService {
       data: {
         ...(dto.name !== undefined ? { name: dto.name } : {}),
         ...(dto.parentId !== undefined ? { parent_id: dto.parentId } : {}),
-        ...(dto.description !== undefined
-          ? { description: dto.description }
-          : {}),
+        ...(dto.description !== undefined ? { description: dto.description } : {}),
       },
     });
 
@@ -238,21 +223,14 @@ export class CatalogService {
     return brand;
   }
 
-  async updateBrand(
-    tenantId: string,
-    userId: string,
-    id: string,
-    dto: UpdateBrandDto,
-  ) {
+  async updateBrand(tenantId: string, userId: string, id: string, dto: UpdateBrandDto) {
     const brand = await this.getBrand(tenantId, id);
 
     const updated = await this.prisma.brand.update({
       where: { id },
       data: {
         ...(dto.name !== undefined ? { name: dto.name } : {}),
-        ...(dto.description !== undefined
-          ? { description: dto.description }
-          : {}),
+        ...(dto.description !== undefined ? { description: dto.description } : {}),
       },
     });
 
@@ -340,11 +318,7 @@ export class CatalogService {
     return unit;
   }
 
-  async createConversion(
-    tenantId: string,
-    userId: string,
-    dto: CreateUnitConversionDto,
-  ) {
+  async createConversion(tenantId: string, userId: string, dto: CreateUnitConversionDto) {
     if (dto.fromUnitId === dto.toUnitId) {
       throw new BadRequestException({
         code: ApiErrorCode.BAD_REQUEST,
@@ -457,9 +431,7 @@ export class CatalogService {
         reorderLevel: Number(p.reorder_level),
         imageUrl: p.image_url,
         isActive: p.is_active,
-        category: p.category
-          ? { id: p.category.id, name: p.category.name }
-          : null,
+        category: p.category ? { id: p.category.id, name: p.category.name } : null,
         brand: p.brand ? { id: p.brand.id, name: p.brand.name } : null,
         unit: { id: p.unit.id, name: p.unit.name, code: p.unit.code },
         variantsCount: p.variants.length,
@@ -510,12 +482,8 @@ export class CatalogService {
       reorderLevel: Number(product.reorder_level),
       imageUrl: product.image_url,
       isActive: product.is_active,
-      category: product.category
-        ? { id: product.category.id, name: product.category.name }
-        : null,
-      brand: product.brand
-        ? { id: product.brand.id, name: product.brand.name }
-        : null,
+      category: product.category ? { id: product.category.id, name: product.category.name } : null,
+      brand: product.brand ? { id: product.brand.id, name: product.brand.name } : null,
       unit: {
         id: product.unit.id,
         name: product.unit.name,
@@ -545,11 +513,7 @@ export class CatalogService {
     };
   }
 
-  async createProduct(
-    tenantId: string,
-    userId: string,
-    dto: CreateProductDto,
-  ) {
+  async createProduct(tenantId: string, userId: string, dto: CreateProductDto) {
     const existingSku = await this.prisma.product.findFirst({
       where: { tenant_id: tenantId, sku: dto.sku },
     });
@@ -647,12 +611,7 @@ export class CatalogService {
     return this.getProduct(tenantId, product.id);
   }
 
-  async updateProduct(
-    tenantId: string,
-    userId: string,
-    id: string,
-    dto: UpdateProductDto,
-  ) {
+  async updateProduct(tenantId: string, userId: string, id: string, dto: UpdateProductDto) {
     const product = await this.prisma.product.findFirst({
       where: { id, tenant_id: tenantId },
     });
@@ -677,8 +636,7 @@ export class CatalogService {
     }
 
     const priceChanged =
-      (dto.costPricePaisa !== undefined &&
-        BigInt(dto.costPricePaisa) !== product.cost_price) ||
+      (dto.costPricePaisa !== undefined && BigInt(dto.costPricePaisa) !== product.cost_price) ||
       (dto.sellingPricePaisa !== undefined &&
         BigInt(dto.sellingPricePaisa) !== product.selling_price);
 
@@ -689,29 +647,19 @@ export class CatalogService {
           ...(dto.name !== undefined ? { name: dto.name } : {}),
           ...(dto.sku !== undefined ? { sku: dto.sku } : {}),
           ...(dto.barcode !== undefined ? { barcode: dto.barcode } : {}),
-          ...(dto.description !== undefined
-            ? { description: dto.description }
-            : {}),
-          ...(dto.categoryId !== undefined
-            ? { category_id: dto.categoryId }
-            : {}),
+          ...(dto.description !== undefined ? { description: dto.description } : {}),
+          ...(dto.categoryId !== undefined ? { category_id: dto.categoryId } : {}),
           ...(dto.brandId !== undefined ? { brand_id: dto.brandId } : {}),
           ...(dto.unitId !== undefined ? { unit_id: dto.unitId } : {}),
-          ...(dto.costPricePaisa !== undefined
-            ? { cost_price: BigInt(dto.costPricePaisa) }
-            : {}),
+          ...(dto.costPricePaisa !== undefined ? { cost_price: BigInt(dto.costPricePaisa) } : {}),
           ...(dto.sellingPricePaisa !== undefined
             ? { selling_price: BigInt(dto.sellingPricePaisa) }
             : {}),
           ...(dto.mrpPaisa !== undefined
             ? { mrp: dto.mrpPaisa ? BigInt(dto.mrpPaisa) : null }
             : {}),
-          ...(dto.vatRatePercent !== undefined
-            ? { vat_rate_percent: dto.vatRatePercent }
-            : {}),
-          ...(dto.reorderLevel !== undefined
-            ? { reorder_level: dto.reorderLevel }
-            : {}),
+          ...(dto.vatRatePercent !== undefined ? { vat_rate_percent: dto.vatRatePercent } : {}),
+          ...(dto.reorderLevel !== undefined ? { reorder_level: dto.reorderLevel } : {}),
           ...(dto.imageUrl !== undefined ? { image_url: dto.imageUrl } : {}),
           ...(dto.isActive !== undefined ? { is_active: dto.isActive } : {}),
         },
@@ -798,13 +746,31 @@ export class CatalogService {
     }));
   }
 
+  async setProductImage(tenantId: string, userId: string, productId: string, imageUrl: string) {
+    await this.getProduct(tenantId, productId);
+
+    const updated = await this.prisma.product.update({
+      where: { id: productId },
+      data: { image_url: imageUrl },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        tenant_id: tenantId,
+        user_id: userId,
+        action: 'UPDATE_PRODUCT_IMAGE',
+        entity_type: 'Product',
+        entity_id: productId,
+        new_values: { imageUrl },
+      },
+    });
+
+    return { id: updated.id, imageUrl: updated.image_url };
+  }
+
   // ================= VARIANTS (P1) =================
 
-  async addVariant(
-    tenantId: string,
-    productId: string,
-    dto: CreateVariantDto,
-  ) {
+  async addVariant(tenantId: string, productId: string, dto: CreateVariantDto) {
     await this.getProduct(tenantId, productId);
 
     const existingSku = await this.prisma.productVariant.findFirst({
@@ -826,9 +792,7 @@ export class CatalogService {
         sku: dto.sku,
         barcode: dto.barcode,
         cost_price: dto.costPricePaisa ? BigInt(dto.costPricePaisa) : null,
-        selling_price: dto.sellingPricePaisa
-          ? BigInt(dto.sellingPricePaisa)
-          : null,
+        selling_price: dto.sellingPricePaisa ? BigInt(dto.sellingPricePaisa) : null,
         attributes: dto.attributes,
         is_active: dto.isActive,
       },
@@ -841,9 +805,7 @@ export class CatalogService {
       sku: variant.sku,
       barcode: variant.barcode,
       costPricePaisa: variant.cost_price ? Number(variant.cost_price) : null,
-      sellingPricePaisa: variant.selling_price
-        ? Number(variant.selling_price)
-        : null,
+      sellingPricePaisa: variant.selling_price ? Number(variant.selling_price) : null,
       attributes: variant.attributes,
       isActive: variant.is_active,
     };

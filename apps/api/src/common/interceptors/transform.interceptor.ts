@@ -30,7 +30,12 @@ export class TransformInterceptor<T> implements NestInterceptor<T, ApiSuccessRes
         }
 
         // If returned object has data and meta fields (e.g. paginated lists)
-        if (sanitized && typeof sanitized === 'object' && 'data' in sanitized && 'meta' in sanitized) {
+        if (
+          sanitized &&
+          typeof sanitized === 'object' &&
+          'data' in sanitized &&
+          'meta' in sanitized
+        ) {
           return {
             success: true,
             data: sanitized.data,

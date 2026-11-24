@@ -15,6 +15,7 @@ import {
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { CatalogService } from './catalog.service.js';
 import { CsvCatalogService } from './services/csv-catalog.service.js';
+import { ImageUploadService } from './services/image-upload.service.js';
 import { createCategorySchema, updateCategorySchema } from './dto/categories.dto.js';
 import type { CreateCategoryDto, UpdateCategoryDto } from './dto/categories.dto.js';
 import { createBrandSchema, updateBrandSchema } from './dto/brands.dto.js';
@@ -26,11 +27,7 @@ import {
   updateProductSchema,
   productQuerySchema,
 } from './dto/products.dto.js';
-import type {
-  CreateProductDto,
-  UpdateProductDto,
-  ProductQueryInput,
-} from './dto/products.dto.js';
+import type { CreateProductDto, UpdateProductDto, ProductQueryInput } from './dto/products.dto.js';
 import { createVariantSchema } from './dto/variants.dto.js';
 import type { CreateVariantDto } from './dto/variants.dto.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
@@ -50,6 +47,7 @@ export class CatalogController {
   constructor(
     @Inject(CatalogService) private readonly catalogService: CatalogService,
     @Inject(CsvCatalogService) private readonly csvService: CsvCatalogService,
+    @Inject(ImageUploadService) private readonly imageUploadService: ImageUploadService,
   ) {}
 
   // ================= CATEGORIES =================
@@ -75,10 +73,7 @@ export class CatalogController {
   @Get('categories/:id')
   @RequirePermissions(Permission.CATALOG_VIEW)
   @ApiOperation({ summary: 'Get category by ID' })
-  async getCategory(
-    @CurrentTenant() tenantId: string,
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  async getCategory(@CurrentTenant() tenantId: string, @Param('id', ParseUUIDPipe) id: string) {
     return this.catalogService.getCategory(tenantId, id);
   }
 
@@ -128,10 +123,7 @@ export class CatalogController {
   @Get('brands/:id')
   @RequirePermissions(Permission.CATALOG_VIEW)
   @ApiOperation({ summary: 'Get brand by ID' })
-  async getBrand(
-    @CurrentTenant() tenantId: string,
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  async getBrand(@CurrentTenant() tenantId: string, @Param('id', ParseUUIDPipe) id: string) {
     return this.catalogService.getBrand(tenantId, id);
   }
 
@@ -218,10 +210,7 @@ export class CatalogController {
   @Get('products/:id')
   @RequirePermissions(Permission.CATALOG_VIEW)
   @ApiOperation({ summary: 'Get product details by ID' })
-  async getProduct(
-    @CurrentTenant() tenantId: string,
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  async getProduct(@CurrentTenant() tenantId: string, @Param('id', ParseUUIDPipe) id: string) {
     return this.catalogService.getProduct(tenantId, id);
   }
 
@@ -251,11 +240,28 @@ export class CatalogController {
   @Get('products/:id/price-history')
   @RequirePermissions(Permission.CATALOG_PRICING_VIEW)
   @ApiOperation({ summary: 'Get price change history for a product' })
-  async getPriceHistory(
-    @CurrentTenant() tenantId: string,
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  async getPriceHistory(@CurrentTenant() tenantId: string, @Param('id', ParseUUIDPipe) id: string) {
     return this.catalogService.getPriceHistory(tenantId, id);
+  }
+
+  @Post('products/:id/image')
+  @RequirePermissions(Permission.CATALOG_MANAGE)
+  @ApiOperation({ summary: 'Upload product image (JPEG, PNG, WebP)' })
+  async uploadProductImage(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: AuthTokenPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { filename: string; mimetype: string; base64Data: string },
+  ) {
+    const buffer = Buffer.from(body.base64Data, 'base64');
+    const uploadResult = await this.imageUploadService.saveProductImage(tenantId, {
+      filename: body.filename,
+      mimetype: body.mimetype,
+      size: buffer.length,
+      buffer,
+    });
+
+    return this.catalogService.setProductImage(tenantId, user.sub, id, uploadResult.url);
   }
 
   // ================= CSV IMPORT / EXPORT =================
@@ -268,11 +274,7 @@ export class CatalogController {
     @CurrentUser() user: AuthTokenPayload,
     @Body() body: { csvContent: string },
   ) {
-    return this.csvService.importProductsCsv(
-      tenantId,
-      user.sub,
-      body.csvContent || '',
-    );
+    return this.csvService.importProductsCsv(tenantId, user.sub, body.csvContent || '');
   }
 
   @Get('products/export/csv')
