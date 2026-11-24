@@ -6,8 +6,10 @@ import { ApiSuccessResponse } from '@dokandesk/shared';
 function serializeBigInt(obj: any): any {
   if (obj === null || obj === undefined) return obj;
   if (typeof obj === 'bigint') return Number(obj);
-  if (Array.isArray(obj)) return obj.map(serializeBigInt);
-  if (typeof obj === 'object' && !(obj instanceof Date)) {
+  if (typeof obj === 'object') {
+    if (obj instanceof Date) return obj;
+    if (typeof obj.toNumber === 'function') return obj.toNumber();
+    if (Array.isArray(obj)) return obj.map(serializeBigInt);
     const res: any = {};
     for (const key of Object.keys(obj)) {
       res[key] = serializeBigInt(obj[key]);

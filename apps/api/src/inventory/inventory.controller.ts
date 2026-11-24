@@ -43,9 +43,7 @@ import { Permission } from '@dokandesk/shared';
 @UseGuards(JwtAuthGuard, RbacGuard)
 @Controller('inventory')
 export class InventoryController {
-  constructor(
-    @Inject(InventoryService) private readonly inventoryService: InventoryService,
-  ) {}
+  constructor(@Inject(InventoryService) private readonly inventoryService: InventoryService) {}
 
   @Get('levels')
   @RequirePermissions(Permission.INVENTORY_VIEW)
@@ -60,10 +58,7 @@ export class InventoryController {
   @Get('low-stock')
   @RequirePermissions(Permission.INVENTORY_VIEW)
   @ApiOperation({ summary: 'Get list of low-stock alerts across branches' })
-  async getLowStockAlerts(
-    @CurrentTenant() tenantId: string,
-    @Query('branchId') branchId?: string,
-  ) {
+  async getLowStockAlerts(@CurrentTenant() tenantId: string, @Query('branchId') branchId?: string) {
     return this.inventoryService.getLowStockAlerts(tenantId, branchId);
   }
 

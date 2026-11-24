@@ -16,9 +16,7 @@ export type RecordOpeningStockDto = z.infer<typeof recordOpeningStockSchema>;
 export const recordAdjustmentSchema = z.object({
   branchId: z.string().uuid('Valid branchId is required'),
   productId: z.string().uuid('Valid productId is required'),
-  quantityDelta: z.coerce
-    .number()
-    .refine((n) => n !== 0, 'Quantity delta cannot be 0'),
+  quantityDelta: z.coerce.number().refine((n) => n !== 0, 'Quantity delta cannot be 0'),
   reason: z.string().trim().min(2, 'Reason is required (min 2 chars)').max(128),
   notes: z.string().trim().max(1000).optional(),
 });
@@ -44,18 +42,13 @@ export const createTransferSchema = z
   .object({
     fromBranchId: z.string().uuid('Valid fromBranchId is required'),
     toBranchId: z.string().uuid('Valid toBranchId is required'),
-    items: z
-      .array(transferItemSchema)
-      .min(1, 'At least one item is required for transfer'),
+    items: z.array(transferItemSchema).min(1, 'At least one item is required for transfer'),
     notes: z.string().trim().max(1000).optional(),
   })
-  .refine(
-    (data) => data.fromBranchId !== data.toBranchId,
-    {
-      message: 'Source branch and destination branch must be different',
-      path: ['toBranchId'],
-    },
-  );
+  .refine((data) => data.fromBranchId !== data.toBranchId, {
+    message: 'Source branch and destination branch must be different',
+    path: ['toBranchId'],
+  });
 
 export type CreateTransferDto = z.infer<typeof createTransferSchema>;
 

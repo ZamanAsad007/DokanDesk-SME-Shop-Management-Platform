@@ -45,8 +45,11 @@ export class InventoryService implements OnModuleInit {
           RAISE EXCEPTION 'stock_movements is append-only: updates and deletes are forbidden';
         END;
         $$ LANGUAGE plpgsql;
-
+      `);
+      await this.prisma.$executeRawUnsafe(`
         DROP TRIGGER IF EXISTS trg_stock_movements_append_only ON stock_movements;
+      `);
+      await this.prisma.$executeRawUnsafe(`
         CREATE TRIGGER trg_stock_movements_append_only
         BEFORE UPDATE OR DELETE ON stock_movements
         FOR EACH ROW
@@ -62,10 +65,7 @@ export class InventoryService implements OnModuleInit {
    * Atomically locks stock_level row FOR UPDATE, enforces negative stock invariant,
    * creates append-only movement, and updates stock level.
    */
-  async recordMovementInternal(
-    tx: Prisma.TransactionClient,
-    params: RecordMovementParams,
-  ) {
+  async recordMovementInternal(tx: Prisma.TransactionClient, params: RecordMovementParams) {
     const {
       tenantId,
       branchId,
@@ -198,11 +198,7 @@ export class InventoryService implements OnModuleInit {
   /**
    * Records opening stock, initializes stock level, and recalculates weighted average cost.
    */
-  async recordOpeningStock(
-    tenantId: string,
-    userId: string,
-    dto: RecordOpeningStockDto,
-  ) {
+  async recordOpeningStock(tenantId: string, userId: string, dto: RecordOpeningStockDto) {
     return await this.prisma.$transaction(async (tx) => {
       const result = await this.recordMovementInternal(tx, {
         tenantId,
@@ -254,11 +250,7 @@ export class InventoryService implements OnModuleInit {
   /**
    * Records a manual stock adjustment with approval and reason tracking.
    */
-  async recordAdjustment(
-    tenantId: string,
-    userId: string,
-    dto: RecordAdjustmentDto,
-  ) {
+  async recordAdjustment(tenantId: string, userId: string, dto: RecordAdjustmentDto) {
     return await this.prisma.$transaction(async (tx) => {
       const adjustment = await tx.stockAdjustment.create({
         data: {
@@ -297,11 +289,7 @@ export class InventoryService implements OnModuleInit {
   /**
    * Records damaged or spoiled goods.
    */
-  async recordDamage(
-    tenantId: string,
-    userId: string,
-    dto: RecordDamageDto,
-  ) {
+  async recordDamage(tenantId: string, userId: string, dto: RecordDamageDto) {
     return await this.prisma.$transaction(async (tx) => {
       const result = await this.recordMovementInternal(tx, {
         tenantId,
@@ -323,11 +311,7 @@ export class InventoryService implements OnModuleInit {
   /**
    * Creates and dispatches a stock transfer from one branch to another.
    */
-  async createTransfer(
-    tenantId: string,
-    userId: string,
-    dto: CreateTransferDto,
-  ) {
+  async createTransfer(tenantId: string, userId: string, dto: CreateTransferDto) {
     return await this.prisma.$transaction(async (tx) => {
       const transfer = await tx.stockTransfer.create({
         data: {
@@ -444,10 +428,7 @@ export class InventoryService implements OnModuleInit {
       ...(status ? { status } : {}),
       ...(branchId
         ? {
-            OR: [
-              { from_branch_id: branchId },
-              { to_branch_id: branchId },
-            ],
+            OR: [{ from_branch_id: branchId }, { to_branch_id: branchId }],
           }
         : {}),
     };

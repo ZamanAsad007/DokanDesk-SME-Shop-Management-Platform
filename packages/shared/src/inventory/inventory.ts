@@ -34,7 +34,6 @@ export function calculateWeightedAverageCost({
     return Math.round(incomingCostPaisa);
   }
 
-  const totalValue =
-    currentQty * currentCostPaisa + incomingQty * incomingCostPaisa;
+  const totalValue = currentQty * currentCostPaisa + incomingQty * incomingCostPaisa;
   return Math.round(totalValue / totalQty);
 }
