@@ -32,7 +32,9 @@ async function bootstrap() {
   // Swagger OpenAPI Documentation
   const swaggerConfig = new DocumentBuilder()
     .setTitle('DokanDesk API')
-    .setDescription('Multi-tenant SME Shop Management Platform API (POS, Inventory, Dues, Accounts)')
+    .setDescription(
+      'Multi-tenant SME Shop Management Platform API (POS, Inventory, Dues, Accounts)',
+    )
     .setVersion('1.0.0')
     .addBearerAuth(
       {

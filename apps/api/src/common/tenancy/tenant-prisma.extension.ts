@@ -5,6 +5,9 @@ export const TENANT_SCOPED_MODELS: readonly Prisma.ModelName[] = [
   'Branch',
   'User',
   'AuditLog',
+  'UserBranch',
+  'RefreshToken',
+  'PasswordResetToken',
 ] as const;
 
 /**

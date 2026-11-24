@@ -4,7 +4,7 @@ import { ApiErrorCode } from '@dokandesk/shared';
 
 @Injectable()
 export class TenantGuard implements CanActivate {
-  canActivate(context: ExecutionContext): boolean {
+  canActivate(_context: ExecutionContext): boolean {
     const tenantId = getTenantId();
     if (!tenantId) {
       throw new UnauthorizedException({

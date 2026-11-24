@@ -70,11 +70,16 @@ export class AppLoggerService implements NestLoggerService {
     this.callLogger('trace', message, optionalParams);
   }
 
-  private callLogger(level: 'info' | 'error' | 'warn' | 'debug' | 'trace', message: string, optionalParams: unknown[]): void {
+  private callLogger(
+    level: 'info' | 'error' | 'warn' | 'debug' | 'trace',
+    message: string,
+    optionalParams: unknown[],
+  ): void {
     if (optionalParams.length > 0) {
-      const context = typeof optionalParams[optionalParams.length - 1] === 'string'
-        ? optionalParams[optionalParams.length - 1]
-        : undefined;
+      const context =
+        typeof optionalParams[optionalParams.length - 1] === 'string'
+          ? optionalParams[optionalParams.length - 1]
+          : undefined;
 
       const metadata = optionalParams.slice(0, context ? -1 : undefined);
       this.logger[level]({ context, metadata }, message);

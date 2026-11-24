@@ -10,13 +10,10 @@ import { UnauthorizedException } from '@nestjs/common';
 
 describe('Tenant Context & Isolation', () => {
   it('stores and retrieves tenant context in current async scope', () => {
-    runWithTenantContext(
-      { tenantId: 'tenant-123', branchId: 'branch-1' },
-      () => {
-        expect(getTenantId()).toBe('tenant-123');
-        expect(getTenantContext()?.branchId).toBe('branch-1');
-      },
-    );
+    runWithTenantContext({ tenantId: 'tenant-123', branchId: 'branch-1' }, () => {
+      expect(getTenantId()).toBe('tenant-123');
+      expect(getTenantContext()?.branchId).toBe('branch-1');
+    });
 
     // Outside of the context, tenantId is undefined
     expect(getTenantId()).toBeUndefined();

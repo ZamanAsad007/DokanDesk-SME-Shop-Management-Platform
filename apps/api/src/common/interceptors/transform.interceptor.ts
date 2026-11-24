@@ -1,21 +1,11 @@
-import {
-  Injectable,
-  NestInterceptor,
-  ExecutionContext,
-  CallHandler,
-} from '@nestjs/common';
+import { Injectable, NestInterceptor, ExecutionContext, CallHandler } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { ApiSuccessResponse } from '@dokandesk/shared';
 
 @Injectable()
-export class TransformInterceptor<T>
-  implements NestInterceptor<T, ApiSuccessResponse<T>>
-{
-  intercept(
-    context: ExecutionContext,
-    next: CallHandler,
-  ): Observable<ApiSuccessResponse<T>> {
+export class TransformInterceptor<T> implements NestInterceptor<T, ApiSuccessResponse<T>> {
+  intercept(context: ExecutionContext, next: CallHandler): Observable<ApiSuccessResponse<T>> {
     return next.handle().pipe(
       map((res) => {
         // If already formatted with success property, pass through

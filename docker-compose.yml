@@ -8,11 +8,15 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dokandesk_dev_secret_local}
       POSTGRES_DB: ${POSTGRES_DB:-dokandesk_dev}
     ports:
-      - "5432:5432"
+      - '5432:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dokandesk_user} -d ${POSTGRES_DB:-dokandesk_dev}"]
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U ${POSTGRES_USER:-dokandesk_user} -d ${POSTGRES_DB:-dokandesk_dev}',
+        ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -22,11 +26,11 @@ services:
     container_name: dokandesk-redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - '6379:6379'
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
       timeout: 3s
       retries: 5
@@ -36,8 +40,8 @@ services:
     container_name: dokandesk-mailpit
     restart: unless-stopped
     ports:
-      - "1025:1025" # SMTP port
-      - "8025:8025" # Web UI port
+      - '1025:1025' # SMTP port
+      - '8025:8025' # Web UI port
     volumes:
       - mailpit_data:/data
     environment:

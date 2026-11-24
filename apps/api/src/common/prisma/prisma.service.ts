@@ -3,10 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { AppLoggerService } from '../logger/logger.service.js';
 
 @Injectable()
-export class PrismaService
-  extends PrismaClient
-  implements OnModuleInit, OnModuleDestroy
-{
+export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
   constructor(private readonly logger?: AppLoggerService) {
     super({
       log: [

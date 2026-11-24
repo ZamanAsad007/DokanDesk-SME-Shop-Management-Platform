@@ -28,7 +28,9 @@ describe('Environment Configuration Validation (Fail-Fast)', () => {
 
   it('fails fast when JWT_ACCESS_SECRET is shorter than 32 characters', () => {
     const invalidEnv = { ...validEnv, JWT_ACCESS_SECRET: 'too-short' };
-    expect(() => validateEnv(invalidEnv)).toThrow(/JWT_ACCESS_SECRET must be at least 32 characters/);
+    expect(() => validateEnv(invalidEnv)).toThrow(
+      /JWT_ACCESS_SECRET must be at least 32 characters/,
+    );
   });
 
   it('fails fast when WEB_ORIGIN is missing or invalid', () => {

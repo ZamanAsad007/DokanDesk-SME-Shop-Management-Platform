@@ -14,10 +14,7 @@ const asyncLocalStorage = new AsyncLocalStorage<TenantContextPayload>();
 /**
  * Runs a function within an isolated tenant context.
  */
-export function runWithTenantContext<R>(
-  context: TenantContextPayload,
-  callback: () => R,
-): R {
+export function runWithTenantContext<R>(context: TenantContextPayload, callback: () => R): R {
   return asyncLocalStorage.run(context, callback);
 }
 

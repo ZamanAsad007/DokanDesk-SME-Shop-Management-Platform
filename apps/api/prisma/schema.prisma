@@ -39,22 +39,27 @@ model Tenant {
 
   branches             Branch[]
   users                User[]
+  refresh_tokens       RefreshToken[]
+  password_reset_tokens PasswordResetToken[]
+  user_branches        UserBranch[]
   audit_logs           AuditLog[]
 
   @@map("tenants")
 }
 
 model Branch {
-  id         String   @id @default(uuid()) @db.Uuid
-  tenant_id  String   @db.Uuid
-  tenant     Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
-  name       String   @db.VarChar(128)
-  code       String   @db.VarChar(32)
-  is_main    Boolean  @default(false)
-  address    String?  @db.Text
-  phone      String?  @db.VarChar(32)
-  created_at DateTime @default(now()) @db.Timestamptz
-  updated_at DateTime @updatedAt @db.Timestamptz
+  id            String       @id @default(uuid()) @db.Uuid
+  tenant_id     String       @db.Uuid
+  tenant        Tenant       @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  name          String       @db.VarChar(128)
+  code          String       @db.VarChar(32)
+  is_main       Boolean      @default(false)
+  address       String?      @db.Text
+  phone         String?      @db.VarChar(32)
+  created_at    DateTime     @default(now()) @db.Timestamptz
+  updated_at    DateTime     @updatedAt @db.Timestamptz
+
+  user_branches UserBranch[]
 
   @@unique([tenant_id, code])
   @@index([tenant_id])
@@ -62,23 +67,76 @@ model Branch {
 }
 
 model User {
-  id            String     @id @default(uuid()) @db.Uuid
-  tenant_id     String     @db.Uuid
-  tenant        Tenant     @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
-  email         String     @db.VarChar(255)
-  phone         String?    @db.VarChar(32)
-  name          String     @db.VarChar(128)
-  password_hash String     @db.VarChar(255)
-  role          UserRole   @default(CASHIER)
-  status        UserStatus @default(ACTIVE)
-  created_at    DateTime   @default(now()) @db.Timestamptz
-  updated_at    DateTime   @updatedAt @db.Timestamptz
+  id                   String               @id @default(uuid()) @db.Uuid
+  tenant_id            String               @db.Uuid
+  tenant               Tenant               @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  email                String               @db.VarChar(255)
+  phone                String?              @db.VarChar(32)
+  name                 String               @db.VarChar(128)
+  password_hash        String               @db.VarChar(255)
+  role                 UserRole             @default(CASHIER)
+  status               UserStatus           @default(ACTIVE)
+  created_at           DateTime             @default(now()) @db.Timestamptz
+  updated_at           DateTime             @updatedAt @db.Timestamptz
 
-  audit_logs    AuditLog[]
+  user_branches        UserBranch[]
+  refresh_tokens       RefreshToken[]
+  password_reset_tokens PasswordResetToken[]
+  audit_logs           AuditLog[]
 
   @@unique([tenant_id, email])
   @@index([tenant_id])
   @@map("users")
+}
+
+model UserBranch {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenant_id  String   @db.Uuid
+  tenant     Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  user_id    String   @db.Uuid
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  branch_id  String   @db.Uuid
+  branch     Branch   @relation(fields: [branch_id], references: [id], onDelete: Cascade)
+  created_at DateTime @default(now()) @db.Timestamptz
+
+  @@unique([user_id, branch_id])
+  @@index([tenant_id])
+  @@index([branch_id])
+  @@map("user_branches")
+}
+
+model RefreshToken {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenant_id   String   @db.Uuid
+  tenant      Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  user_id     String   @db.Uuid
+  user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  token_hash  String   @db.VarChar(255)
+  expires_at  DateTime @db.Timestamptz
+  revoked     Boolean  @default(false)
+  created_at  DateTime @default(now()) @db.Timestamptz
+
+  @@index([tenant_id])
+  @@index([user_id])
+  @@index([token_hash])
+  @@map("refresh_tokens")
+}
+
+model PasswordResetToken {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenant_id   String   @db.Uuid
+  tenant      Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  user_id     String   @db.Uuid
+  user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  token_hash  String   @db.VarChar(255)
+  expires_at  DateTime @db.Timestamptz
+  used        Boolean  @default(false)
+  created_at  DateTime @default(now()) @db.Timestamptz
+
+  @@index([tenant_id])
+  @@index([user_id])
+  @@index([token_hash])
+  @@map("password_reset_tokens")
 }
 
 model AuditLog {
