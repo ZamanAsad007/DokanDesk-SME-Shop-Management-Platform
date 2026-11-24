@@ -7,6 +7,7 @@ import { AuthModule } from './auth/auth.module.js';
 import { TenantsModule } from './tenants/tenants.module.js';
 import { BranchesModule } from './branches/branches.module.js';
 import { UsersModule } from './users/users.module.js';
+import { CatalogModule } from './catalog/catalog.module.js';
 import { TenantMiddleware } from './common/tenancy/tenant.middleware.js';
 
 @Module({
@@ -19,6 +20,7 @@ import { TenantMiddleware } from './common/tenancy/tenant.middleware.js';
     TenantsModule,
     BranchesModule,
     UsersModule,
+    CatalogModule,
   ],
   controllers: [],
   providers: [],

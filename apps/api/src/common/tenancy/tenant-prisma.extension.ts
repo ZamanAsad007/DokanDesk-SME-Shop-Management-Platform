@@ -8,6 +8,13 @@ export const TENANT_SCOPED_MODELS: readonly Prisma.ModelName[] = [
   'UserBranch',
   'RefreshToken',
   'PasswordResetToken',
+  'Category',
+  'Brand',
+  'Unit',
+  'UnitConversion',
+  'Product',
+  'ProductVariant',
+  'PriceHistory',
 ] as const;
 
 /**

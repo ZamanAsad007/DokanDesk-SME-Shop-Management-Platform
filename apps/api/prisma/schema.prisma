@@ -37,14 +37,166 @@ model Tenant {
   created_at           DateTime     @default(now()) @db.Timestamptz
   updated_at           DateTime     @updatedAt @db.Timestamptz
 
-  branches             Branch[]
-  users                User[]
-  refresh_tokens       RefreshToken[]
+  branches              Branch[]
+  users                 User[]
+  refresh_tokens        RefreshToken[]
   password_reset_tokens PasswordResetToken[]
-  user_branches        UserBranch[]
-  audit_logs           AuditLog[]
+  user_branches         UserBranch[]
+  categories            Category[]
+  brands                Brand[]
+  units                 Unit[]
+  unit_conversions      UnitConversion[]
+  products              Product[]
+  product_variants      ProductVariant[]
+  price_histories       PriceHistory[]
+  audit_logs            AuditLog[]
 
   @@map("tenants")
+}
+
+model Category {
+  id          String     @id @default(uuid()) @db.Uuid
+  tenant_id   String     @db.Uuid
+  tenant      Tenant     @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  parent_id   String?    @db.Uuid
+  parent      Category?  @relation("CategoryHierarchy", fields: [parent_id], references: [id], onDelete: Cascade)
+  children    Category[] @relation("CategoryHierarchy")
+  name        String     @db.VarChar(128)
+  description String?    @db.Text
+  created_at  DateTime   @default(now()) @db.Timestamptz
+  updated_at  DateTime   @updatedAt @db.Timestamptz
+
+  products    Product[]
+
+  @@unique([tenant_id, name, parent_id])
+  @@index([tenant_id])
+  @@map("categories")
+}
+
+model Brand {
+  id          String    @id @default(uuid()) @db.Uuid
+  tenant_id   String    @db.Uuid
+  tenant      Tenant    @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  name        String    @db.VarChar(128)
+  description String?   @db.Text
+  created_at  DateTime  @default(now()) @db.Timestamptz
+  updated_at  DateTime  @updatedAt @db.Timestamptz
+
+  products    Product[]
+
+  @@unique([tenant_id, name])
+  @@index([tenant_id])
+  @@map("brands")
+}
+
+model Unit {
+  id               String           @id @default(uuid()) @db.Uuid
+  tenant_id        String           @db.Uuid
+  tenant           Tenant           @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  name             String           @db.VarChar(64)
+  code             String           @db.VarChar(32)
+  created_at       DateTime         @default(now()) @db.Timestamptz
+  updated_at       DateTime         @updatedAt @db.Timestamptz
+
+  products         Product[]
+  conversions_from UnitConversion[] @relation("UnitConversionFrom")
+  conversions_to   UnitConversion[] @relation("UnitConversionTo")
+
+  @@unique([tenant_id, code])
+  @@index([tenant_id])
+  @@map("units")
+}
+
+model UnitConversion {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenant_id    String   @db.Uuid
+  tenant       Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  from_unit_id String   @db.Uuid
+  from_unit    Unit     @relation("UnitConversionFrom", fields: [from_unit_id], references: [id], onDelete: Cascade)
+  to_unit_id   String   @db.Uuid
+  to_unit      Unit     @relation("UnitConversionTo", fields: [to_unit_id], references: [id], onDelete: Cascade)
+  multiplier   Decimal  @db.Decimal(14, 4)
+  created_at   DateTime @default(now()) @db.Timestamptz
+  updated_at   DateTime @updatedAt @db.Timestamptz
+
+  @@unique([tenant_id, from_unit_id, to_unit_id])
+  @@index([tenant_id])
+  @@map("unit_conversions")
+}
+
+model Product {
+  id               String           @id @default(uuid()) @db.Uuid
+  tenant_id        String           @db.Uuid
+  tenant           Tenant           @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  category_id      String?          @db.Uuid
+  category         Category?        @relation(fields: [category_id], references: [id], onDelete: SetNull)
+  brand_id         String?          @db.Uuid
+  brand            Brand?           @relation(fields: [brand_id], references: [id], onDelete: SetNull)
+  unit_id          String           @db.Uuid
+  unit             Unit             @relation(fields: [unit_id], references: [id], onDelete: Restrict)
+  name             String           @db.VarChar(191)
+  description      String?          @db.Text
+  sku              String           @db.VarChar(64)
+  barcode          String?          @db.VarChar(64)
+  cost_price       BigInt
+  selling_price    BigInt
+  mrp              BigInt?
+  vat_rate_percent Decimal          @default(0.00) @db.Decimal(5, 2)
+  reorder_level    Decimal          @default(0) @db.Decimal(14, 3)
+  image_url        String?          @db.VarChar(512)
+  is_active        Boolean          @default(true)
+  created_at       DateTime         @default(now()) @db.Timestamptz
+  updated_at       DateTime         @updatedAt @db.Timestamptz
+
+  variants         ProductVariant[]
+  price_history    PriceHistory[]
+
+  @@unique([tenant_id, sku])
+  @@index([tenant_id])
+  @@index([tenant_id, barcode])
+  @@index([tenant_id, name])
+  @@map("products")
+}
+
+model ProductVariant {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenant_id     String   @db.Uuid
+  tenant        Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  product_id    String   @db.Uuid
+  product       Product  @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  name          String   @db.VarChar(128)
+  sku           String   @db.VarChar(64)
+  barcode       String?  @db.VarChar(64)
+  cost_price    BigInt?
+  selling_price BigInt?
+  attributes    Json
+  is_active     Boolean  @default(true)
+  created_at    DateTime @default(now()) @db.Timestamptz
+  updated_at    DateTime @updatedAt @db.Timestamptz
+
+  @@unique([tenant_id, sku])
+  @@index([tenant_id])
+  @@index([product_id])
+  @@map("product_variants")
+}
+
+model PriceHistory {
+  id                String   @id @default(uuid()) @db.Uuid
+  tenant_id         String   @db.Uuid
+  tenant            Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  product_id        String   @db.Uuid
+  product           Product  @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  old_cost_price    BigInt
+  new_cost_price    BigInt
+  old_selling_price BigInt
+  new_selling_price BigInt
+  change_reason     String?  @db.VarChar(255)
+  changed_by        String?  @db.Uuid
+  created_at        DateTime @default(now()) @db.Timestamptz
+
+  @@index([tenant_id])
+  @@index([product_id])
+  @@map("price_history")
 }
 
 model Branch {
