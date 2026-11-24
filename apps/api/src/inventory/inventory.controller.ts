@@ -15,6 +15,20 @@ import { createMovementSchema, movementQuerySchema } from './dto/stock-movement.
 import type { CreateMovementDto, MovementQueryInput } from './dto/stock-movement.dto.js';
 import { stockLevelQuerySchema } from './dto/stock-level.dto.js';
 import type { StockLevelQueryInput } from './dto/stock-level.dto.js';
+import {
+  recordOpeningStockSchema,
+  recordAdjustmentSchema,
+  recordDamageSchema,
+  createTransferSchema,
+  transferQuerySchema,
+} from './dto/stock-operations.dto.js';
+import type {
+  RecordOpeningStockDto,
+  RecordAdjustmentDto,
+  RecordDamageDto,
+  CreateTransferDto,
+  TransferQueryInput,
+} from './dto/stock-operations.dto.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { RbacGuard } from '../auth/guards/rbac.guard.js';
 import { RequirePermissions } from '../auth/decorators/require-permissions.decorator.js';
@@ -41,6 +55,16 @@ export class InventoryController {
     @Query(new ZodValidationPipe(stockLevelQuerySchema)) query: StockLevelQueryInput,
   ) {
     return this.inventoryService.getStockLevels(tenantId, query);
+  }
+
+  @Get('low-stock')
+  @RequirePermissions(Permission.INVENTORY_VIEW)
+  @ApiOperation({ summary: 'Get list of low-stock alerts across branches' })
+  async getLowStockAlerts(
+    @CurrentTenant() tenantId: string,
+    @Query('branchId') branchId?: string,
+  ) {
+    return this.inventoryService.getLowStockAlerts(tenantId, branchId);
   }
 
   @Get('levels/:branchId/:productId')
@@ -84,5 +108,88 @@ export class InventoryController {
       notes: dto.notes,
       userId: user.sub,
     });
+  }
+
+  @Post('opening')
+  @RequirePermissions(Permission.INVENTORY_ADJUST)
+  @ApiOperation({ summary: 'Record opening stock and calculate weighted-average cost' })
+  async recordOpeningStock(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: AuthTokenPayload,
+    @Body(new ZodValidationPipe(recordOpeningStockSchema)) dto: RecordOpeningStockDto,
+  ) {
+    return this.inventoryService.recordOpeningStock(tenantId, user.sub, dto);
+  }
+
+  @Post('adjustments')
+  @RequirePermissions(Permission.INVENTORY_ADJUST)
+  @ApiOperation({ summary: 'Record manual stock adjustment with approval tracking' })
+  async recordAdjustment(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: AuthTokenPayload,
+    @Body(new ZodValidationPipe(recordAdjustmentSchema)) dto: RecordAdjustmentDto,
+  ) {
+    return this.inventoryService.recordAdjustment(tenantId, user.sub, dto);
+  }
+
+  @Get('adjustments')
+  @RequirePermissions(Permission.INVENTORY_VIEW)
+  @ApiOperation({ summary: 'List stock adjustments' })
+  async listAdjustments(
+    @CurrentTenant() tenantId: string,
+    @Query('branchId') branchId?: string,
+    @Query('productId') productId?: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    return this.inventoryService.listAdjustments(tenantId, {
+      branchId,
+      productId,
+      page: page ? Number(page) : 1,
+      limit: limit ? Number(limit) : 20,
+    });
+  }
+
+  @Post('damage')
+  @RequirePermissions(Permission.INVENTORY_ADJUST)
+  @ApiOperation({ summary: 'Record damaged or expired inventory' })
+  async recordDamage(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: AuthTokenPayload,
+    @Body(new ZodValidationPipe(recordDamageSchema)) dto: RecordDamageDto,
+  ) {
+    return this.inventoryService.recordDamage(tenantId, user.sub, dto);
+  }
+
+  @Post('transfers')
+  @RequirePermissions(Permission.INVENTORY_TRANSFER)
+  @ApiOperation({ summary: 'Create and dispatch branch stock transfer' })
+  async createTransfer(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: AuthTokenPayload,
+    @Body(new ZodValidationPipe(createTransferSchema)) dto: CreateTransferDto,
+  ) {
+    return this.inventoryService.createTransfer(tenantId, user.sub, dto);
+  }
+
+  @Post('transfers/:id/receive')
+  @RequirePermissions(Permission.INVENTORY_TRANSFER)
+  @ApiOperation({ summary: 'Receive dispatched branch stock transfer' })
+  async receiveTransfer(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: AuthTokenPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.inventoryService.receiveTransfer(tenantId, user.sub, id);
+  }
+
+  @Get('transfers')
+  @RequirePermissions(Permission.INVENTORY_VIEW)
+  @ApiOperation({ summary: 'List branch stock transfers' })
+  async listTransfers(
+    @CurrentTenant() tenantId: string,
+    @Query(new ZodValidationPipe(transferQuerySchema)) query: TransferQueryInput,
+  ) {
+    return this.inventoryService.listTransfers(tenantId, query);
   }
 }

@@ -7,9 +7,16 @@ import {
 } from '@nestjs/common';
 import { StockMovementType, Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service.js';
-import { ApiErrorCode } from '@dokandesk/shared';
+import { ApiErrorCode, calculateWeightedAverageCost } from '@dokandesk/shared';
 import type { MovementQueryInput } from './dto/stock-movement.dto.js';
 import type { StockLevelQueryInput } from './dto/stock-level.dto.js';
+import type {
+  RecordOpeningStockDto,
+  RecordAdjustmentDto,
+  RecordDamageDto,
+  CreateTransferDto,
+  TransferQueryInput,
+} from './dto/stock-operations.dto.js';
 
 export interface RecordMovementParams {
   tenantId: string;
@@ -46,15 +53,19 @@ export class InventoryService implements OnModuleInit {
         EXECUTE FUNCTION prevent_stock_movement_mutation();
       `);
     } catch {
-      // Ignore if insufficient permissions or non-PostgreSQL environment
+      // Non-blocking for environments that manage DB externally
     }
   }
 
   /**
-   * Atomically records an append-only stock movement and updates the cached stock level.
-   * If allow_negative_stock is false for the tenant, forbids current_quantity from dropping below 0.
+   * Internal transaction-bound stock movement recorder.
+   * Atomically locks stock_level row FOR UPDATE, enforces negative stock invariant,
+   * creates append-only movement, and updates stock level.
    */
-  async recordMovement(params: RecordMovementParams) {
+  async recordMovementInternal(
+    tx: Prisma.TransactionClient,
+    params: RecordMovementParams,
+  ) {
     const {
       tenantId,
       branchId,
@@ -68,105 +79,459 @@ export class InventoryService implements OnModuleInit {
       userId,
     } = params;
 
+    // 1. Verify tenant & settings
+    const tenant = await tx.tenant.findUnique({
+      where: { id: tenantId },
+      select: { id: true, allow_negative_stock: true },
+    });
+
+    if (!tenant) {
+      throw new NotFoundException({
+        code: ApiErrorCode.TENANT_NOT_FOUND,
+        message: 'Tenant not found',
+      });
+    }
+
+    // 2. Verify product & branch belong to tenant
+    const product = await tx.product.findFirst({
+      where: { id: productId, tenant_id: tenantId },
+      select: { id: true, reorder_level: true, cost_price: true, selling_price: true },
+    });
+
+    if (!product) {
+      throw new NotFoundException({
+        code: ApiErrorCode.NOT_FOUND,
+        message: 'Product not found for this tenant',
+      });
+    }
+
+    const branch = await tx.branch.findFirst({
+      where: { id: branchId, tenant_id: tenantId },
+      select: { id: true },
+    });
+
+    if (!branch) {
+      throw new NotFoundException({
+        code: ApiErrorCode.NOT_FOUND,
+        message: 'Branch not found for this tenant',
+      });
+    }
+
+    // 3. Atomically ensure stock_level row exists and lock it for update
+    await tx.$executeRaw`
+      INSERT INTO stock_levels (id, tenant_id, branch_id, product_id, current_quantity, reserved_quantity, reorder_point, updated_at)
+      VALUES (gen_random_uuid(), ${tenantId}::uuid, ${branchId}::uuid, ${productId}::uuid, 0, 0, ${product.reorder_level}, NOW())
+      ON CONFLICT (tenant_id, branch_id, product_id) DO NOTHING
+    `;
+
+    const [stockLevelRow] = await tx.$queryRaw<
+      Array<{
+        id: string;
+        current_quantity: string;
+        reserved_quantity: string;
+        reorder_point: string;
+      }>
+    >`
+      SELECT id, current_quantity, reserved_quantity, reorder_point
+      FROM stock_levels
+      WHERE tenant_id = ${tenantId}::uuid AND branch_id = ${branchId}::uuid AND product_id = ${productId}::uuid
+      FOR UPDATE
+    `;
+
+    const currentQty = Number(stockLevelRow.current_quantity);
+    const newQty = currentQty + quantity;
+
+    // 4. Invariant check: negative stock rule
+    if (!tenant.allow_negative_stock && newQty < 0) {
+      throw new BadRequestException({
+        code: ApiErrorCode.NEGATIVE_STOCK_NOT_ALLOWED,
+        message: `Operation rejected: negative stock is not allowed. Available: ${currentQty}, Requested change: ${quantity}, Resulting: ${newQty}`,
+      });
+    }
+
+    // 5. Append stock movement
+    const movement = await tx.stockMovement.create({
+      data: {
+        tenant_id: tenantId,
+        branch_id: branchId,
+        product_id: productId,
+        type,
+        quantity: new Prisma.Decimal(quantity),
+        unit_cost_paisa: BigInt(unitCostPaisa),
+        reference_type: referenceType,
+        reference_id: referenceId,
+        notes,
+        created_by: userId,
+      },
+    });
+
+    // 6. Update cached stock level
+    const updatedStockLevel = await tx.stockLevel.update({
+      where: { id: stockLevelRow.id },
+      data: {
+        current_quantity: new Prisma.Decimal(newQty),
+      },
+    });
+
+    return {
+      movement,
+      stockLevel: updatedStockLevel,
+      currentQty,
+      newQty,
+      product,
+    };
+  }
+
+  /**
+   * Atomically records an append-only stock movement and updates the cached stock level.
+   */
+  async recordMovement(params: RecordMovementParams) {
     return await this.prisma.$transaction(async (tx) => {
-      // 1. Verify tenant & settings
-      const tenant = await tx.tenant.findUnique({
-        where: { id: tenantId },
-        select: { id: true, allow_negative_stock: true },
+      const result = await this.recordMovementInternal(tx, params);
+      return {
+        movement: result.movement,
+        stockLevel: result.stockLevel,
+      };
+    });
+  }
+
+  /**
+   * Records opening stock, initializes stock level, and recalculates weighted average cost.
+   */
+  async recordOpeningStock(
+    tenantId: string,
+    userId: string,
+    dto: RecordOpeningStockDto,
+  ) {
+    return await this.prisma.$transaction(async (tx) => {
+      const result = await this.recordMovementInternal(tx, {
+        tenantId,
+        branchId: dto.branchId,
+        productId: dto.productId,
+        type: StockMovementType.OPENING,
+        quantity: dto.quantity,
+        unitCostPaisa: dto.unitCostPaisa,
+        notes: dto.notes ?? 'Initial opening stock',
+        userId,
       });
 
-      if (!tenant) {
-        throw new NotFoundException({
-          code: ApiErrorCode.TENANT_NOT_FOUND,
-          message: 'Tenant not found',
-        });
-      }
-
-      // 2. Verify product & branch belong to tenant
-      const product = await tx.product.findFirst({
-        where: { id: productId, tenant_id: tenantId },
-        select: { id: true, reorder_level: true },
+      // Recalculate weighted-average cost
+      const newCostPaisa = calculateWeightedAverageCost({
+        currentQty: result.currentQty,
+        currentCostPaisa: Number(result.product.cost_price),
+        incomingQty: dto.quantity,
+        incomingCostPaisa: dto.unitCostPaisa,
       });
 
-      if (!product) {
-        throw new NotFoundException({
-          code: ApiErrorCode.NOT_FOUND,
-          message: 'Product not found for this tenant',
+      if (BigInt(newCostPaisa) !== result.product.cost_price) {
+        await tx.product.update({
+          where: { id: dto.productId },
+          data: { cost_price: BigInt(newCostPaisa) },
+        });
+
+        await tx.priceHistory.create({
+          data: {
+            tenant_id: tenantId,
+            product_id: dto.productId,
+            old_cost_price: result.product.cost_price,
+            new_cost_price: BigInt(newCostPaisa),
+            old_selling_price: result.product.selling_price,
+            new_selling_price: result.product.selling_price,
+            change_reason: 'Opening stock weighted average cost update',
+            changed_by: userId,
+          },
         });
       }
 
-      const branch = await tx.branch.findFirst({
-        where: { id: branchId, tenant_id: tenantId },
-        select: { id: true },
-      });
+      return {
+        movement: result.movement,
+        stockLevel: result.stockLevel,
+        updatedCostPricePaisa: newCostPaisa,
+      };
+    });
+  }
 
-      if (!branch) {
-        throw new NotFoundException({
-          code: ApiErrorCode.NOT_FOUND,
-          message: 'Branch not found for this tenant',
-        });
-      }
-
-      // 3. Atomically ensure stock_level row exists and lock it for update
-      await tx.$executeRaw`
-        INSERT INTO stock_levels (id, tenant_id, branch_id, product_id, current_quantity, reserved_quantity, reorder_point, updated_at)
-        VALUES (gen_random_uuid(), ${tenantId}::uuid, ${branchId}::uuid, ${productId}::uuid, 0, 0, ${product.reorder_level}, NOW())
-        ON CONFLICT (tenant_id, branch_id, product_id) DO NOTHING
-      `;
-
-      const [stockLevelRow] = await tx.$queryRaw<
-        Array<{
-          id: string;
-          current_quantity: string;
-          reserved_quantity: string;
-          reorder_point: string;
-        }>
-      >`
-        SELECT id, current_quantity, reserved_quantity, reorder_point
-        FROM stock_levels
-        WHERE tenant_id = ${tenantId}::uuid AND branch_id = ${branchId}::uuid AND product_id = ${productId}::uuid
-        FOR UPDATE
-      `;
-
-      const currentQty = Number(stockLevelRow.current_quantity);
-      const newQty = currentQty + quantity;
-
-      // 4. Invariant check: negative stock rule
-      if (!tenant.allow_negative_stock && newQty < 0) {
-        throw new BadRequestException({
-          code: ApiErrorCode.NEGATIVE_STOCK_NOT_ALLOWED,
-          message: `Operation rejected: negative stock is not allowed. Available: ${currentQty}, Requested change: ${quantity}, Resulting: ${newQty}`,
-        });
-      }
-
-      // 5. Append stock movement
-      const movement = await tx.stockMovement.create({
+  /**
+   * Records a manual stock adjustment with approval and reason tracking.
+   */
+  async recordAdjustment(
+    tenantId: string,
+    userId: string,
+    dto: RecordAdjustmentDto,
+  ) {
+    return await this.prisma.$transaction(async (tx) => {
+      const adjustment = await tx.stockAdjustment.create({
         data: {
           tenant_id: tenantId,
-          branch_id: branchId,
-          product_id: productId,
-          type,
-          quantity: new Prisma.Decimal(quantity),
-          unit_cost_paisa: BigInt(unitCostPaisa),
-          reference_type: referenceType,
-          reference_id: referenceId,
-          notes,
+          branch_id: dto.branchId,
+          product_id: dto.productId,
+          reason: dto.reason,
+          quantity_delta: new Prisma.Decimal(dto.quantityDelta),
+          status: 'APPROVED',
+          approved_by: userId,
           created_by: userId,
+          notes: dto.notes,
         },
       });
 
-      // 6. Update cached stock level
-      const updatedStockLevel = await tx.stockLevel.update({
-        where: { id: stockLevelRow.id },
-        data: {
-          current_quantity: new Prisma.Decimal(newQty),
-        },
+      const result = await this.recordMovementInternal(tx, {
+        tenantId,
+        branchId: dto.branchId,
+        productId: dto.productId,
+        type: StockMovementType.ADJUSTMENT,
+        quantity: dto.quantityDelta,
+        referenceType: 'stock_adjustment',
+        referenceId: adjustment.id,
+        notes: dto.notes ? `${dto.reason}: ${dto.notes}` : dto.reason,
+        userId,
       });
 
       return {
-        movement,
-        stockLevel: updatedStockLevel,
+        adjustment,
+        movement: result.movement,
+        stockLevel: result.stockLevel,
       };
+    });
+  }
+
+  /**
+   * Records damaged or spoiled goods.
+   */
+  async recordDamage(
+    tenantId: string,
+    userId: string,
+    dto: RecordDamageDto,
+  ) {
+    return await this.prisma.$transaction(async (tx) => {
+      const result = await this.recordMovementInternal(tx, {
+        tenantId,
+        branchId: dto.branchId,
+        productId: dto.productId,
+        type: StockMovementType.DAMAGE,
+        quantity: -dto.quantity,
+        notes: dto.notes ? `${dto.reason}: ${dto.notes}` : dto.reason,
+        userId,
+      });
+
+      return {
+        movement: result.movement,
+        stockLevel: result.stockLevel,
+      };
+    });
+  }
+
+  /**
+   * Creates and dispatches a stock transfer from one branch to another.
+   */
+  async createTransfer(
+    tenantId: string,
+    userId: string,
+    dto: CreateTransferDto,
+  ) {
+    return await this.prisma.$transaction(async (tx) => {
+      const transfer = await tx.stockTransfer.create({
+        data: {
+          tenant_id: tenantId,
+          from_branch_id: dto.fromBranchId,
+          to_branch_id: dto.toBranchId,
+          status: 'DISPATCHED',
+          notes: dto.notes,
+          created_by: userId,
+          items: {
+            create: dto.items.map((item) => ({
+              tenant_id: tenantId,
+              product_id: item.productId,
+              quantity: new Prisma.Decimal(item.quantity),
+            })),
+          },
+        },
+        include: {
+          items: {
+            include: {
+              product: { select: { id: true, name: true, sku: true } },
+            },
+          },
+          from_branch: { select: { id: true, name: true, code: true } },
+          to_branch: { select: { id: true, name: true, code: true } },
+        },
+      });
+
+      // Deduct stock at source branch
+      for (const item of dto.items) {
+        await this.recordMovementInternal(tx, {
+          tenantId,
+          branchId: dto.fromBranchId,
+          productId: item.productId,
+          type: StockMovementType.TRANSFER_OUT,
+          quantity: -item.quantity,
+          referenceType: 'stock_transfer',
+          referenceId: transfer.id,
+          notes: `Transfer out to branch ${dto.toBranchId}`,
+          userId,
+        });
+      }
+
+      return transfer;
+    });
+  }
+
+  /**
+   * Receives a dispatched stock transfer into the destination branch.
+   */
+  async receiveTransfer(tenantId: string, userId: string, transferId: string) {
+    return await this.prisma.$transaction(async (tx) => {
+      const transfer = await tx.stockTransfer.findFirst({
+        where: { id: transferId, tenant_id: tenantId },
+        include: { items: true },
+      });
+
+      if (!transfer) {
+        throw new NotFoundException({
+          code: ApiErrorCode.NOT_FOUND,
+          message: 'Transfer not found',
+        });
+      }
+
+      if (transfer.status !== 'DISPATCHED') {
+        throw new BadRequestException({
+          code: ApiErrorCode.BAD_REQUEST,
+          message: `Transfer cannot be received because it is currently ${transfer.status}`,
+        });
+      }
+
+      // Add stock at destination branch
+      for (const item of transfer.items) {
+        await this.recordMovementInternal(tx, {
+          tenantId,
+          branchId: transfer.to_branch_id,
+          productId: item.product_id,
+          type: StockMovementType.TRANSFER_IN,
+          quantity: Number(item.quantity),
+          referenceType: 'stock_transfer',
+          referenceId: transfer.id,
+          notes: `Transfer in from branch ${transfer.from_branch_id}`,
+          userId,
+        });
+      }
+
+      return await tx.stockTransfer.update({
+        where: { id: transferId },
+        data: {
+          status: 'RECEIVED',
+        },
+        include: {
+          items: {
+            include: {
+              product: { select: { id: true, name: true, sku: true } },
+            },
+          },
+          from_branch: { select: { id: true, name: true, code: true } },
+          to_branch: { select: { id: true, name: true, code: true } },
+        },
+      });
+    });
+  }
+
+  /**
+   * Lists stock transfers with pagination.
+   */
+  async listTransfers(tenantId: string, query: TransferQueryInput) {
+    const { branchId, status, page = 1, limit = 20 } = query;
+    const skip = (page - 1) * limit;
+
+    const where: Prisma.StockTransferWhereInput = {
+      tenant_id: tenantId,
+      ...(status ? { status } : {}),
+      ...(branchId
+        ? {
+            OR: [
+              { from_branch_id: branchId },
+              { to_branch_id: branchId },
+            ],
+          }
+        : {}),
+    };
+
+    const [total, items] = await Promise.all([
+      this.prisma.stockTransfer.count({ where }),
+      this.prisma.stockTransfer.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { created_at: 'desc' },
+        include: {
+          items: {
+            include: {
+              product: { select: { id: true, name: true, sku: true } },
+            },
+          },
+          from_branch: { select: { id: true, name: true, code: true } },
+          to_branch: { select: { id: true, name: true, code: true } },
+        },
+      }),
+    ]);
+
+    return {
+      items,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  /**
+   * Lists adjustments with pagination.
+   */
+  async listAdjustments(
+    tenantId: string,
+    query: { branchId?: string; productId?: string; page?: number; limit?: number },
+  ) {
+    const { branchId, productId, page = 1, limit = 20 } = query;
+    const skip = (page - 1) * limit;
+
+    const where: Prisma.StockAdjustmentWhereInput = {
+      tenant_id: tenantId,
+      ...(branchId ? { branch_id: branchId } : {}),
+      ...(productId ? { product_id: productId } : {}),
+    };
+
+    const [total, items] = await Promise.all([
+      this.prisma.stockAdjustment.count({ where }),
+      this.prisma.stockAdjustment.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { created_at: 'desc' },
+        include: {
+          product: { select: { id: true, name: true, sku: true } },
+          branch: { select: { id: true, name: true, code: true } },
+        },
+      }),
+    ]);
+
+    return {
+      items,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  /**
+   * Returns list of low-stock alerts across branches.
+   */
+  async getLowStockAlerts(tenantId: string, branchId?: string) {
+    return this.getStockLevels(tenantId, {
+      branchId,
+      lowStockOnly: true,
+      page: 1,
+      limit: 100,
     });
   }
 
