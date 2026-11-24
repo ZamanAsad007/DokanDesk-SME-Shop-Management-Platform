@@ -1,5 +1,5 @@
 import { Global, Module } from '@nestjs/common';
-import { env, EnvConfig } from './env.js';
+import { env } from './env.js';
 
 export const ENV_TOKEN = 'ENV_CONFIG';
 
