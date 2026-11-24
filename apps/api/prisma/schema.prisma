@@ -7,6 +7,18 @@ generator client {
   provider = "prisma-client-js"
 }
 
+enum StockMovementType {
+  PURCHASE
+  SALE
+  SALE_RETURN
+  PURCHASE_RETURN
+  ADJUSTMENT
+  DAMAGE
+  TRANSFER_OUT
+  TRANSFER_IN
+  OPENING
+}
+
 enum TenantStatus {
   ACTIVE
   SUSPENDED
@@ -49,6 +61,10 @@ model Tenant {
   products              Product[]
   product_variants      ProductVariant[]
   price_histories       PriceHistory[]
+  stock_movements       StockMovement[]
+  stock_levels          StockLevel[]
+  stock_adjustments     StockAdjustment[]
+  stock_transfers       StockTransfer[]
   audit_logs            AuditLog[]
 
   @@map("tenants")
@@ -148,8 +164,12 @@ model Product {
   created_at       DateTime         @default(now()) @db.Timestamptz
   updated_at       DateTime         @updatedAt @db.Timestamptz
 
-  variants         ProductVariant[]
-  price_history    PriceHistory[]
+  variants          ProductVariant[]
+  price_history     PriceHistory[]
+  stock_levels      StockLevel[]
+  stock_movements   StockMovement[]
+  stock_adjustments StockAdjustment[]
+  transfer_items    StockTransferItem[]
 
   @@unique([tenant_id, sku])
   @@index([tenant_id])
@@ -211,7 +231,12 @@ model Branch {
   created_at    DateTime     @default(now()) @db.Timestamptz
   updated_at    DateTime     @updatedAt @db.Timestamptz
 
-  user_branches UserBranch[]
+  user_branches     UserBranch[]
+  stock_levels      StockLevel[]
+  stock_movements   StockMovement[]
+  stock_adjustments StockAdjustment[]
+  transfers_from    StockTransfer[] @relation("TransfersFrom")
+  transfers_to      StockTransfer[] @relation("TransfersTo")
 
   @@unique([tenant_id, code])
   @@index([tenant_id])
@@ -309,4 +334,101 @@ model AuditLog {
   @@index([tenant_id, entity_type, entity_id])
   @@index([tenant_id, created_at])
   @@map("audit_logs")
+}
+
+model StockMovement {
+  id             String            @id @default(uuid()) @db.Uuid
+  tenant_id      String            @db.Uuid
+  tenant         Tenant            @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  branch_id      String            @db.Uuid
+  branch         Branch            @relation(fields: [branch_id], references: [id], onDelete: Cascade)
+  product_id     String            @db.Uuid
+  product        Product           @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  type           StockMovementType
+  quantity       Decimal           @db.Decimal(14, 3)
+  unit_cost_paisa BigInt
+  reference_type String?           @db.VarChar(64)
+  reference_id   String?           @db.VarChar(128)
+  notes          String?           @db.Text
+  created_by     String?           @db.Uuid
+  created_at     DateTime          @default(now()) @db.Timestamptz
+
+  @@index([tenant_id])
+  @@index([tenant_id, branch_id, product_id])
+  @@index([tenant_id, created_at])
+  @@index([tenant_id, type])
+  @@map("stock_movements")
+}
+
+model StockLevel {
+  id               String   @id @default(uuid()) @db.Uuid
+  tenant_id        String   @db.Uuid
+  tenant           Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  branch_id        String   @db.Uuid
+  branch           Branch   @relation(fields: [branch_id], references: [id], onDelete: Cascade)
+  product_id       String   @db.Uuid
+  product          Product  @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  current_quantity Decimal  @default(0) @db.Decimal(14, 3)
+  reserved_quantity Decimal @default(0) @db.Decimal(14, 3)
+  reorder_point    Decimal  @default(0) @db.Decimal(14, 3)
+  updated_at       DateTime @updatedAt @db.Timestamptz
+
+  @@unique([tenant_id, branch_id, product_id])
+  @@index([tenant_id])
+  @@index([tenant_id, branch_id])
+  @@map("stock_levels")
+}
+
+model StockAdjustment {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenant_id      String   @db.Uuid
+  tenant         Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  branch_id      String   @db.Uuid
+  branch         Branch   @relation(fields: [branch_id], references: [id], onDelete: Cascade)
+  product_id     String   @db.Uuid
+  product        Product  @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  reason         String   @db.VarChar(128)
+  quantity_delta Decimal  @db.Decimal(14, 3)
+  status         String   @default("APPROVED") @db.VarChar(32)
+  approved_by    String?  @db.Uuid
+  created_by     String   @db.Uuid
+  notes          String?  @db.Text
+  created_at     DateTime @default(now()) @db.Timestamptz
+
+  @@index([tenant_id])
+  @@index([tenant_id, branch_id])
+  @@map("stock_adjustments")
+}
+
+model StockTransfer {
+  id             String              @id @default(uuid()) @db.Uuid
+  tenant_id      String              @db.Uuid
+  tenant         Tenant              @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  from_branch_id String              @db.Uuid
+  from_branch    Branch              @relation("TransfersFrom", fields: [from_branch_id], references: [id], onDelete: Restrict)
+  to_branch_id   String              @db.Uuid
+  to_branch      Branch              @relation("TransfersTo", fields: [to_branch_id], references: [id], onDelete: Restrict)
+  status         String              @default("DISPATCHED") @db.VarChar(32)
+  notes          String?             @db.Text
+  created_by     String              @db.Uuid
+  created_at     DateTime            @default(now()) @db.Timestamptz
+  updated_at     DateTime            @updatedAt @db.Timestamptz
+
+  items          StockTransferItem[]
+
+  @@index([tenant_id])
+  @@map("stock_transfers")
+}
+
+model StockTransferItem {
+  id          String        @id @default(uuid()) @db.Uuid
+  tenant_id   String        @db.Uuid
+  transfer_id String        @db.Uuid
+  transfer    StockTransfer @relation(fields: [transfer_id], references: [id], onDelete: Cascade)
+  product_id  String        @db.Uuid
+  product     Product       @relation(fields: [product_id], references: [id], onDelete: Restrict)
+  quantity    Decimal       @db.Decimal(14, 3)
+
+  @@index([tenant_id])
+  @@map("stock_transfer_items")
 }
