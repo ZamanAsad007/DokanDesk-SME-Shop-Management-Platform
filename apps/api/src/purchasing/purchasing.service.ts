@@ -16,6 +16,7 @@ import { PrismaService } from '../common/prisma/prisma.service.js';
 import { InventoryService } from '../inventory/inventory.service.js';
 import {
   calculatePurchaseInvoiceTotals,
+  calculatePurchaseReturnTotals,
   calculateWeightedAverageCost,
   ApiErrorCode,
 } from '@dokandesk/shared';
@@ -28,6 +29,15 @@ import type {
   CreatePurchaseInvoiceDto,
   PurchaseInvoiceQueryInput,
 } from './dto/purchase-invoices.dto.js';
+import type {
+  CreateSupplierPaymentDto,
+  SupplierPaymentQueryInput,
+} from './dto/supplier-payments.dto.js';
+import type {
+  CreatePurchaseReturnDto,
+  PurchaseReturnQueryInput,
+} from './dto/purchase-returns.dto.js';
+import type { SupplierLedgerQueryInput } from './dto/supplier-ledger.dto.js';
 
 @Injectable()
 export class PurchasingService implements OnModuleInit {
@@ -529,4 +539,373 @@ export class PurchasingService implements OnModuleInit {
     return invoice;
   }
 
+  // ================= 3. SUPPLIER PAYMENTS =================
+
+  async createPayment(
+    tenantId: string,
+    userId: string,
+    dto: CreateSupplierPaymentDto,
+  ) {
+    const supplier = await this.prisma.supplier.findFirst({
+      where: { id: dto.supplierId, tenant_id: tenantId },
+    });
+
+    if (!supplier) {
+      throw new NotFoundException({
+        code: ApiErrorCode.NOT_FOUND,
+        message: 'Supplier not found for this tenant',
+      });
+    }
+
+    const paymentAmountPaisa = BigInt(dto.amountPaisa);
+    const paymentNumber =
+      dto.paymentNumber ??
+      `PAY-${Date.now().toString(36).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    return await this.prisma.$transaction(async (tx) => {
+      // Lock supplier row FOR UPDATE
+      const [supplierRow] = await tx.$queryRaw<
+        Array<{ id: string; current_balance_paisa: string }>
+      >`
+        SELECT id, current_balance_paisa
+        FROM suppliers
+        WHERE id = ${dto.supplierId}::uuid AND tenant_id = ${tenantId}::uuid
+        FOR UPDATE
+      `;
+
+      const curBal = BigInt(supplierRow.current_balance_paisa);
+      const balanceAfterPayment = curBal - paymentAmountPaisa;
+
+      const payment = await tx.supplierPayment.create({
+        data: {
+          tenant_id: tenantId,
+          supplier_id: dto.supplierId,
+          payment_number: paymentNumber,
+          amount_paisa: paymentAmountPaisa,
+          payment_method: dto.paymentMethod,
+          payment_date: dto.paymentDate ?? new Date(),
+          reference_number: dto.referenceNumber,
+          notes: dto.notes,
+          created_by: userId,
+        },
+      });
+
+      await tx.supplierLedger.create({
+        data: {
+          tenant_id: tenantId,
+          supplier_id: dto.supplierId,
+          type: SupplierLedgerEntryType.PAYMENT,
+          amount_paisa: -paymentAmountPaisa,
+          balance_after_paisa: balanceAfterPayment,
+          reference_type: 'SUPPLIER_PAYMENT',
+          reference_id: payment.id,
+          notes: dto.notes ?? `Payment: ${paymentNumber}`,
+          created_by: userId,
+        },
+      });
+
+      await tx.supplier.update({
+        where: { id: dto.supplierId },
+        data: { current_balance_paisa: balanceAfterPayment },
+      });
+
+      return payment;
+    });
+  }
+
+  async listPayments(tenantId: string, query: SupplierPaymentQueryInput) {
+    const where: Prisma.SupplierPaymentWhereInput = {
+      tenant_id: tenantId,
+      ...(query.supplierId ? { supplier_id: query.supplierId } : {}),
+      ...(query.startDate || query.endDate
+        ? {
+            payment_date: {
+              ...(query.startDate ? { gte: query.startDate } : {}),
+              ...(query.endDate ? { lte: query.endDate } : {}),
+            },
+          }
+        : {}),
+    };
+
+    const [total, payments] = await Promise.all([
+      this.prisma.supplierPayment.count({ where }),
+      this.prisma.supplierPayment.findMany({
+        where,
+        include: {
+          supplier: { select: { id: true, name: true } },
+        },
+        orderBy: { payment_date: 'desc' },
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+      }),
+    ]);
+
+    return {
+      data: payments,
+      meta: {
+        total,
+        page: query.page,
+        limit: query.limit,
+        hasMore: query.page * query.limit < total,
+      },
+    };
+  }
+
+  // ================= 4. PURCHASE RETURNS =================
+
+  async createReturn(
+    tenantId: string,
+    userId: string,
+    dto: CreatePurchaseReturnDto,
+  ) {
+    const supplier = await this.prisma.supplier.findFirst({
+      where: { id: dto.supplierId, tenant_id: tenantId },
+    });
+    if (!supplier) {
+      throw new NotFoundException({
+        code: ApiErrorCode.NOT_FOUND,
+        message: 'Supplier not found for this tenant',
+      });
+    }
+
+    const branch = await this.prisma.branch.findFirst({
+      where: { id: dto.branchId, tenant_id: tenantId },
+    });
+    if (!branch) {
+      throw new NotFoundException({
+        code: ApiErrorCode.NOT_FOUND,
+        message: 'Branch not found for this tenant',
+      });
+    }
+
+    const returnNumber =
+      dto.returnNumber ??
+      `RET-${Date.now().toString(36).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    const totalReturnPaisa = BigInt(calculatePurchaseReturnTotals(dto.items));
+
+    return await this.prisma.$transaction(async (tx) => {
+      const returnRecord = await tx.purchaseReturn.create({
+        data: {
+          tenant_id: tenantId,
+          supplier_id: dto.supplierId,
+          branch_id: dto.branchId,
+          purchase_invoice_id: dto.purchaseInvoiceId,
+          return_number: returnNumber,
+          return_date: dto.returnDate ?? new Date(),
+          total_paisa: totalReturnPaisa,
+          reason: dto.reason,
+          created_by: userId,
+        },
+      });
+
+      for (const item of dto.items) {
+        const lineSubtotal = BigInt(Math.round(item.quantity * item.unitCostPaisa));
+
+        await tx.purchaseReturnItem.create({
+          data: {
+            tenant_id: tenantId,
+            return_id: returnRecord.id,
+            product_id: item.productId,
+            quantity: new Prisma.Decimal(item.quantity),
+            unit_cost_paisa: BigInt(item.unitCostPaisa),
+            subtotal_paisa: lineSubtotal,
+          },
+        });
+
+        // Stock movement: return deducts inventory (quantity is negative)
+        await this.inventoryService.recordMovementInternal(tx, {
+          tenantId,
+          branchId: dto.branchId,
+          productId: item.productId,
+          type: StockMovementType.PURCHASE_RETURN,
+          quantity: -item.quantity,
+          unitCostPaisa: item.unitCostPaisa,
+          referenceType: 'PURCHASE_RETURN',
+          referenceId: returnRecord.id,
+          notes: `Purchase return: ${returnNumber}`,
+          userId,
+        });
+      }
+
+      // Update supplier ledger & running balance (decreases liability / payable)
+      const [supplierRow] = await tx.$queryRaw<
+        Array<{ id: string; current_balance_paisa: string }>
+      >`
+        SELECT id, current_balance_paisa
+        FROM suppliers
+        WHERE id = ${dto.supplierId}::uuid AND tenant_id = ${tenantId}::uuid
+        FOR UPDATE
+      `;
+
+      const curBal = BigInt(supplierRow.current_balance_paisa);
+      const balanceAfterReturn = curBal - totalReturnPaisa;
+
+      await tx.supplierLedger.create({
+        data: {
+          tenant_id: tenantId,
+          supplier_id: dto.supplierId,
+          type: SupplierLedgerEntryType.RETURN,
+          amount_paisa: -totalReturnPaisa,
+          balance_after_paisa: balanceAfterReturn,
+          reference_type: 'PURCHASE_RETURN',
+          reference_id: returnRecord.id,
+          notes: dto.reason ?? `Purchase return: ${returnNumber}`,
+          created_by: userId,
+        },
+      });
+
+      await tx.supplier.update({
+        where: { id: dto.supplierId },
+        data: { current_balance_paisa: balanceAfterReturn },
+      });
+
+      return await tx.purchaseReturn.findUnique({
+        where: { id: returnRecord.id },
+        include: {
+          items: { include: { product: true } },
+          supplier: true,
+          branch: true,
+        },
+      });
+    });
+  }
+
+  async listReturns(tenantId: string, query: PurchaseReturnQueryInput) {
+    const where: Prisma.PurchaseReturnWhereInput = {
+      tenant_id: tenantId,
+      ...(query.supplierId ? { supplier_id: query.supplierId } : {}),
+      ...(query.branchId ? { branch_id: query.branchId } : {}),
+      ...(query.purchaseInvoiceId ? { purchase_invoice_id: query.purchaseInvoiceId } : {}),
+      ...(query.startDate || query.endDate
+        ? {
+            return_date: {
+              ...(query.startDate ? { gte: query.startDate } : {}),
+              ...(query.endDate ? { lte: query.endDate } : {}),
+            },
+          }
+        : {}),
+    };
+
+    const [total, returns] = await Promise.all([
+      this.prisma.purchaseReturn.count({ where }),
+      this.prisma.purchaseReturn.findMany({
+        where,
+        include: {
+          supplier: { select: { id: true, name: true } },
+          branch: { select: { id: true, name: true } },
+          items: true,
+        },
+        orderBy: { return_date: 'desc' },
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+      }),
+    ]);
+
+    return {
+      data: returns,
+      meta: {
+        total,
+        page: query.page,
+        limit: query.limit,
+        hasMore: query.page * query.limit < total,
+      },
+    };
+  }
+
+  async getReturnById(tenantId: string, returnId: string) {
+    const returnRecord = await this.prisma.purchaseReturn.findFirst({
+      where: { id: returnId, tenant_id: tenantId },
+      include: {
+        supplier: true,
+        branch: true,
+        items: { include: { product: true } },
+      },
+    });
+
+    if (!returnRecord) {
+      throw new NotFoundException({
+        code: ApiErrorCode.NOT_FOUND,
+        message: 'Purchase return not found',
+      });
+    }
+
+    return returnRecord;
+  }
+
+  // ================= 5. SUPPLIER LEDGER & PAYABLES REPORT =================
+
+  async getSupplierLedger(
+    tenantId: string,
+    supplierId: string,
+    query: SupplierLedgerQueryInput,
+  ) {
+    await this.getSupplierById(tenantId, supplierId);
+
+    const where: Prisma.SupplierLedgerWhereInput = {
+      tenant_id: tenantId,
+      supplier_id: supplierId,
+      ...(query.type ? { type: query.type } : {}),
+      ...(query.startDate || query.endDate
+        ? {
+            created_at: {
+              ...(query.startDate ? { gte: query.startDate } : {}),
+              ...(query.endDate ? { lte: query.endDate } : {}),
+            },
+          }
+        : {}),
+    };
+
+    const [total, entries] = await Promise.all([
+      this.prisma.supplierLedger.count({ where }),
+      this.prisma.supplierLedger.findMany({
+        where,
+        orderBy: { created_at: 'desc' },
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+      }),
+    ]);
+
+    return {
+      data: entries,
+      meta: {
+        total,
+        page: query.page,
+        limit: query.limit,
+        hasMore: query.page * query.limit < total,
+      },
+    };
+  }
+
+  async getPayablesReport(tenantId: string) {
+    const suppliers = await this.prisma.supplier.findMany({
+      where: {
+        tenant_id: tenantId,
+        is_active: true,
+      },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        contact_person: true,
+        current_balance_paisa: true,
+        updated_at: true,
+      },
+      orderBy: { current_balance_paisa: 'desc' },
+    });
+
+    // Sum positive balances (amount shop owes to suppliers)
+    const payableSuppliers = suppliers.filter((s) => s.current_balance_paisa > 0n);
+    const totalPayablesPaisa = payableSuppliers.reduce(
+      (sum, s) => sum + s.current_balance_paisa,
+      0n,
+    );
+
+    return {
+      totalPayablesPaisa,
+      payableSuppliersCount: payableSuppliers.length,
+      totalSuppliersCount: suppliers.length,
+      suppliers,
+    };
+  }
 }

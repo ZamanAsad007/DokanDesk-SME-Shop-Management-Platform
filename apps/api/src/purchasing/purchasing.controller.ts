@@ -31,6 +31,24 @@ import type {
   CreatePurchaseInvoiceDto,
   PurchaseInvoiceQueryInput,
 } from './dto/purchase-invoices.dto.js';
+import {
+  createSupplierPaymentSchema,
+  supplierPaymentQuerySchema,
+} from './dto/supplier-payments.dto.js';
+import type {
+  CreateSupplierPaymentDto,
+  SupplierPaymentQueryInput,
+} from './dto/supplier-payments.dto.js';
+import {
+  createPurchaseReturnSchema,
+  purchaseReturnQuerySchema,
+} from './dto/purchase-returns.dto.js';
+import type {
+  CreatePurchaseReturnDto,
+  PurchaseReturnQueryInput,
+} from './dto/purchase-returns.dto.js';
+import { supplierLedgerQuerySchema } from './dto/supplier-ledger.dto.js';
+import type { SupplierLedgerQueryInput } from './dto/supplier-ledger.dto.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { RbacGuard } from '../auth/guards/rbac.guard.js';
 import { RequirePermissions } from '../auth/decorators/require-permissions.decorator.js';
@@ -136,4 +154,79 @@ export class PurchasingController {
     return this.purchasingService.getInvoiceById(tenantId, id);
   }
 
+  // ================= 3. SUPPLIER PAYMENTS =================
+
+  @Post('payments')
+  @RequirePermissions(Permission.PURCHASING_PAY)
+  @ApiOperation({ summary: 'Record payment to supplier and update ledger' })
+  async createPayment(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: AuthTokenPayload,
+    @Body(new ZodValidationPipe(createSupplierPaymentSchema)) dto: CreateSupplierPaymentDto,
+  ) {
+    return this.purchasingService.createPayment(tenantId, user.sub, dto);
+  }
+
+  @Get('payments')
+  @RequirePermissions(Permission.PURCHASING_VIEW)
+  @ApiOperation({ summary: 'List supplier payments' })
+  async listPayments(
+    @CurrentTenant() tenantId: string,
+    @Query(new ZodValidationPipe(supplierPaymentQuerySchema)) query: SupplierPaymentQueryInput,
+  ) {
+    return this.purchasingService.listPayments(tenantId, query);
+  }
+
+  // ================= 4. PURCHASE RETURNS =================
+
+  @Post('returns')
+  @RequirePermissions(Permission.PURCHASING_RECEIVE)
+  @ApiOperation({ summary: 'Record purchase return, deduct stock, and update supplier ledger' })
+  async createReturn(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: AuthTokenPayload,
+    @Body(new ZodValidationPipe(createPurchaseReturnSchema)) dto: CreatePurchaseReturnDto,
+  ) {
+    return this.purchasingService.createReturn(tenantId, user.sub, dto);
+  }
+
+  @Get('returns')
+  @RequirePermissions(Permission.PURCHASING_VIEW)
+  @ApiOperation({ summary: 'List purchase returns' })
+  async listReturns(
+    @CurrentTenant() tenantId: string,
+    @Query(new ZodValidationPipe(purchaseReturnQuerySchema)) query: PurchaseReturnQueryInput,
+  ) {
+    return this.purchasingService.listReturns(tenantId, query);
+  }
+
+  @Get('returns/:id')
+  @RequirePermissions(Permission.PURCHASING_VIEW)
+  @ApiOperation({ summary: 'Get purchase return by ID' })
+  async getReturn(
+    @CurrentTenant() tenantId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.purchasingService.getReturnById(tenantId, id);
+  }
+
+  // ================= 5. SUPPLIER LEDGER & PAYABLES =================
+
+  @Get('suppliers/:id/ledger')
+  @RequirePermissions(Permission.PURCHASING_VIEW)
+  @ApiOperation({ summary: 'Get append-only supplier ledger entries' })
+  async getSupplierLedger(
+    @CurrentTenant() tenantId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query(new ZodValidationPipe(supplierLedgerQuerySchema)) query: SupplierLedgerQueryInput,
+  ) {
+    return this.purchasingService.getSupplierLedger(tenantId, id, query);
+  }
+
+  @Get('payables')
+  @RequirePermissions(Permission.PURCHASING_VIEW)
+  @ApiOperation({ summary: 'Get total payables report across suppliers' })
+  async getPayablesReport(@CurrentTenant() tenantId: string) {
+    return this.purchasingService.getPayablesReport(tenantId);
+  }
 }
