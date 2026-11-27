@@ -66,6 +66,15 @@ model Tenant {
   stock_adjustments     StockAdjustment[]
   stock_transfers       StockTransfer[]
   audit_logs            AuditLog[]
+  suppliers             Supplier[]
+  purchase_orders       PurchaseOrder[]
+  purchase_order_items  PurchaseOrderItem[]
+  purchase_invoices     PurchaseInvoice[]
+  purchase_invoice_items PurchaseInvoiceItem[]
+  supplier_ledger       SupplierLedger[]
+  supplier_payments     SupplierPayment[]
+  purchase_returns      PurchaseReturn[]
+  purchase_return_items PurchaseReturnItem[]
 
   @@map("tenants")
 }
@@ -164,12 +173,15 @@ model Product {
   created_at       DateTime         @default(now()) @db.Timestamptz
   updated_at       DateTime         @updatedAt @db.Timestamptz
 
-  variants          ProductVariant[]
-  price_history     PriceHistory[]
-  stock_levels      StockLevel[]
-  stock_movements   StockMovement[]
-  stock_adjustments StockAdjustment[]
-  transfer_items    StockTransferItem[]
+  variants               ProductVariant[]
+  price_history          PriceHistory[]
+  stock_levels           StockLevel[]
+  stock_movements        StockMovement[]
+  stock_adjustments      StockAdjustment[]
+  transfer_items         StockTransferItem[]
+  purchase_order_items   PurchaseOrderItem[]
+  purchase_invoice_items PurchaseInvoiceItem[]
+  purchase_return_items  PurchaseReturnItem[]
 
   @@unique([tenant_id, sku])
   @@index([tenant_id])
@@ -237,6 +249,9 @@ model Branch {
   stock_adjustments StockAdjustment[]
   transfers_from    StockTransfer[] @relation("TransfersFrom")
   transfers_to      StockTransfer[] @relation("TransfersTo")
+  purchase_orders   PurchaseOrder[]
+  purchase_invoices PurchaseInvoice[]
+  purchase_returns  PurchaseReturn[]
 
   @@unique([tenant_id, code])
   @@index([tenant_id])
@@ -431,4 +446,258 @@ model StockTransferItem {
 
   @@index([tenant_id])
   @@map("stock_transfer_items")
+}
+
+enum PurchaseOrderStatus {
+  DRAFT
+  ORDERED
+  PARTIAL_RECEIVED
+  RECEIVED
+  CANCELLED
+}
+
+enum PurchaseInvoiceStatus {
+  PENDING
+  RECEIVED
+  CANCELLED
+}
+
+enum SupplierLedgerEntryType {
+  INVOICE
+  PAYMENT
+  RETURN
+  ADJUSTMENT
+}
+
+enum PurchaseReturnStatus {
+  DRAFT
+  COMPLETED
+  CANCELLED
+}
+
+model Supplier {
+  id                    String   @id @default(uuid()) @db.Uuid
+  tenant_id             String   @db.Uuid
+  tenant                Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  name                  String   @db.VarChar(128)
+  contact_person        String?  @db.VarChar(128)
+  phone                 String?  @db.VarChar(32)
+  email                 String?  @db.VarChar(255)
+  address               String?  @db.Text
+  opening_balance_paisa BigInt   @default(0)
+  current_balance_paisa BigInt   @default(0)
+  is_active             Boolean  @default(true)
+  created_at            DateTime @default(now()) @db.Timestamptz
+  updated_at            DateTime @updatedAt @db.Timestamptz
+
+  purchase_orders       PurchaseOrder[]
+  purchase_invoices     PurchaseInvoice[]
+  supplier_ledger       SupplierLedger[]
+  supplier_payments     SupplierPayment[]
+  purchase_returns      PurchaseReturn[]
+
+  @@unique([tenant_id, name])
+  @@index([tenant_id])
+  @@index([tenant_id, name])
+  @@map("suppliers")
+}
+
+model PurchaseOrder {
+  id                     String              @id @default(uuid()) @db.Uuid
+  tenant_id              String              @db.Uuid
+  tenant                 Tenant              @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  supplier_id            String              @db.Uuid
+  supplier               Supplier            @relation(fields: [supplier_id], references: [id], onDelete: Restrict)
+  branch_id              String              @db.Uuid
+  branch                 Branch              @relation(fields: [branch_id], references: [id], onDelete: Restrict)
+  po_number              String              @db.VarChar(64)
+  status                 PurchaseOrderStatus @default(DRAFT)
+  order_date             DateTime            @default(now()) @db.Timestamptz
+  expected_delivery_date DateTime?           @db.Timestamptz
+  subtotal_paisa         BigInt              @default(0)
+  tax_paisa              BigInt              @default(0)
+  total_paisa            BigInt              @default(0)
+  notes                  String?             @db.Text
+  created_by             String?             @db.Uuid
+  created_at             DateTime            @default(now()) @db.Timestamptz
+  updated_at             DateTime            @updatedAt @db.Timestamptz
+
+  items                  PurchaseOrderItem[]
+  invoices               PurchaseInvoice[]
+
+  @@unique([tenant_id, po_number])
+  @@index([tenant_id])
+  @@index([tenant_id, supplier_id])
+  @@index([tenant_id, branch_id])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id                String        @id @default(uuid()) @db.Uuid
+  tenant_id         String        @db.Uuid
+  tenant            Tenant        @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  po_id             String        @db.Uuid
+  purchase_order    PurchaseOrder @relation(fields: [po_id], references: [id], onDelete: Cascade)
+  product_id        String        @db.Uuid
+  product           Product       @relation(fields: [product_id], references: [id], onDelete: Restrict)
+  quantity          Decimal       @db.Decimal(14, 3)
+  received_quantity Decimal       @default(0) @db.Decimal(14, 3)
+  unit_cost_paisa   BigInt
+  subtotal_paisa    BigInt
+  created_at        DateTime      @default(now()) @db.Timestamptz
+  updated_at        DateTime      @updatedAt @db.Timestamptz
+
+  @@index([tenant_id])
+  @@index([po_id])
+  @@map("purchase_order_items")
+}
+
+model PurchaseInvoice {
+  id                  String                @id @default(uuid()) @db.Uuid
+  tenant_id           String                @db.Uuid
+  tenant              Tenant                @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  supplier_id         String                @db.Uuid
+  supplier            Supplier              @relation(fields: [supplier_id], references: [id], onDelete: Restrict)
+  branch_id           String                @db.Uuid
+  branch              Branch                @relation(fields: [branch_id], references: [id], onDelete: Restrict)
+  po_id               String?               @db.Uuid
+  purchase_order      PurchaseOrder?        @relation(fields: [po_id], references: [id], onDelete: SetNull)
+  invoice_number      String                @db.VarChar(64)
+  status              PurchaseInvoiceStatus @default(RECEIVED)
+  invoice_date        DateTime              @default(now()) @db.Timestamptz
+  received_date       DateTime?             @db.Timestamptz
+  subtotal_paisa      BigInt
+  discount_paisa      BigInt                @default(0)
+  tax_paisa           BigInt                @default(0)
+  shipping_cost_paisa BigInt                @default(0)
+  total_paisa         BigInt
+  paid_amount_paisa   BigInt                @default(0)
+  notes               String?               @db.Text
+  created_by          String?               @db.Uuid
+  created_at          DateTime              @default(now()) @db.Timestamptz
+  updated_at          DateTime              @updatedAt @db.Timestamptz
+
+  items               PurchaseInvoiceItem[]
+  returns             PurchaseReturn[]
+
+  @@unique([tenant_id, supplier_id, invoice_number])
+  @@index([tenant_id])
+  @@index([tenant_id, supplier_id])
+  @@index([tenant_id, branch_id])
+  @@index([tenant_id, invoice_date])
+  @@map("purchase_invoices")
+}
+
+model PurchaseInvoiceItem {
+  id                  String          @id @default(uuid()) @db.Uuid
+  tenant_id           String          @db.Uuid
+  tenant              Tenant          @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  purchase_invoice_id String          @db.Uuid
+  purchase_invoice    PurchaseInvoice @relation(fields: [purchase_invoice_id], references: [id], onDelete: Cascade)
+  product_id          String          @db.Uuid
+  product             Product         @relation(fields: [product_id], references: [id], onDelete: Restrict)
+  quantity            Decimal         @db.Decimal(14, 3)
+  unit_cost_paisa     BigInt
+  subtotal_paisa      BigInt
+  created_at          DateTime        @default(now()) @db.Timestamptz
+  updated_at          DateTime        @updatedAt @db.Timestamptz
+
+  @@index([tenant_id])
+  @@index([purchase_invoice_id])
+  @@index([product_id])
+  @@map("purchase_invoice_items")
+}
+
+model SupplierLedger {
+  id                  String                  @id @default(uuid()) @db.Uuid
+  tenant_id           String                  @db.Uuid
+  tenant              Tenant                  @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  supplier_id         String                  @db.Uuid
+  supplier            Supplier                @relation(fields: [supplier_id], references: [id], onDelete: Cascade)
+  type                SupplierLedgerEntryType
+  amount_paisa        BigInt
+  balance_after_paisa BigInt
+  reference_type      String?                 @db.VarChar(64)
+  reference_id        String?                 @db.VarChar(128)
+  notes               String?                 @db.Text
+  created_by          String?                 @db.Uuid
+  created_at          DateTime                @default(now()) @db.Timestamptz
+
+  @@index([tenant_id])
+  @@index([tenant_id, supplier_id])
+  @@index([tenant_id, created_at])
+  @@index([tenant_id, type])
+  @@map("supplier_ledger")
+}
+
+model SupplierPayment {
+  id               String   @id @default(uuid()) @db.Uuid
+  tenant_id        String   @db.Uuid
+  tenant           Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  supplier_id      String   @db.Uuid
+  supplier         Supplier @relation(fields: [supplier_id], references: [id], onDelete: Restrict)
+  payment_number   String   @db.VarChar(64)
+  amount_paisa     BigInt
+  payment_method   String   @db.VarChar(32)
+  payment_date     DateTime @default(now()) @db.Timestamptz
+  reference_number String?  @db.VarChar(128)
+  notes            String?  @db.Text
+  created_by       String?  @db.Uuid
+  created_at       DateTime @default(now()) @db.Timestamptz
+  updated_at       DateTime @updatedAt @db.Timestamptz
+
+  @@unique([tenant_id, payment_number])
+  @@index([tenant_id])
+  @@index([tenant_id, supplier_id])
+  @@index([tenant_id, payment_date])
+  @@map("supplier_payments")
+}
+
+model PurchaseReturn {
+  id                  String               @id @default(uuid()) @db.Uuid
+  tenant_id           String               @db.Uuid
+  tenant              Tenant               @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  supplier_id         String               @db.Uuid
+  supplier            Supplier             @relation(fields: [supplier_id], references: [id], onDelete: Restrict)
+  branch_id           String               @db.Uuid
+  branch              Branch               @relation(fields: [branch_id], references: [id], onDelete: Restrict)
+  purchase_invoice_id String?              @db.Uuid
+  purchase_invoice    PurchaseInvoice?     @relation(fields: [purchase_invoice_id], references: [id], onDelete: SetNull)
+  return_number       String               @db.VarChar(64)
+  return_date         DateTime             @default(now()) @db.Timestamptz
+  status              PurchaseReturnStatus @default(COMPLETED)
+  total_paisa         BigInt
+  reason              String?              @db.VarChar(255)
+  created_by          String?              @db.Uuid
+  created_at          DateTime             @default(now()) @db.Timestamptz
+  updated_at          DateTime             @updatedAt @db.Timestamptz
+
+  items               PurchaseReturnItem[]
+
+  @@unique([tenant_id, return_number])
+  @@index([tenant_id])
+  @@index([tenant_id, supplier_id])
+  @@index([tenant_id, branch_id])
+  @@index([tenant_id, return_date])
+  @@map("purchase_returns")
+}
+
+model PurchaseReturnItem {
+  id              String         @id @default(uuid()) @db.Uuid
+  tenant_id       String         @db.Uuid
+  tenant          Tenant         @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  return_id       String         @db.Uuid
+  purchase_return PurchaseReturn @relation(fields: [return_id], references: [id], onDelete: Cascade)
+  product_id      String         @db.Uuid
+  product         Product        @relation(fields: [product_id], references: [id], onDelete: Restrict)
+  quantity        Decimal        @db.Decimal(14, 3)
+  unit_cost_paisa BigInt
+  subtotal_paisa  BigInt
+  created_at      DateTime       @default(now()) @db.Timestamptz
+  updated_at      DateTime       @updatedAt @db.Timestamptz
+
+  @@index([tenant_id])
+  @@index([return_id])
+  @@index([product_id])
+  @@map("purchase_return_items")
 }
